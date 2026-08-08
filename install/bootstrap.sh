@@ -32,12 +32,26 @@ command -v python3 >/dev/null || { echo "python3 not found" >&2; exit 1; }
 echo "==> python: $(python3 -V 2>&1)"
 
 echo "==> fetching renderdeck into $DEST"
-if [ -d "$DEST/.git" ]; then
-  git -C "$DEST" pull --ff-only --quiet
+# git is NOT assumed. On a fresh Mac without Xcode command line tools, `git`
+# is a stub that pops a GUI installer and hangs a piped script forever -- the
+# single most likely way this install dies on an edit bay machine. Tarball via
+# curl is the default; git is only used when a real one already exists.
+if command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
+  if [ -d "$DEST/.git" ]; then
+    git -C "$DEST" pull --ff-only --quiet
+  else
+    rm -rf "$DEST"; git clone --depth 1 --quiet "$REPO" "$DEST"
+  fi
 else
-  rm -rf "$DEST"
-  git clone --depth 1 --quiet "$REPO" "$DEST"
+  echo "    (no usable git — downloading tarball)"
+  TMP=$(mktemp -d)
+  curl -fsSL "$REPO/archive/refs/heads/main.tar.gz" -o "$TMP/rd.tgz"
+  mkdir -p "$TMP/x" && tar -xzf "$TMP/rd.tgz" -C "$TMP/x"
+  rm -rf "$DEST"; mkdir -p "$(dirname "$DEST")"
+  mv "$TMP/x/renderdeck-main" "$DEST"
+  rm -rf "$TMP"
 fi
+[ -f "$DEST/install/setup.py" ] || { echo "fetch failed: $DEST looks wrong" >&2; exit 1; }
 
 echo "==> writing config"
 python3 "$DEST/install/setup.py" --collector "$COLLECTOR" --token "$TOKEN" \
