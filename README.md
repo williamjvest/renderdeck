@@ -138,20 +138,38 @@ still get the dashboard.
 
 ## Status
 
-**v0.2.0 — early but in daily use**, across four machines and two programs.
+**v0.3.0 — early, but in daily use** across three machines and two programs.
 
-Known gaps, stated plainly:
+### Known gaps
 
-- Not packaged as signed binaries yet. "Companion app" today means a Python
-  file and a config; the installer vendors its own interpreter so that is a
-  one-command install, but it is not a double-clickable `.app`/`.exe`.
-- **Movie-file progress is unvalidated against a real AE log.** Sequence
-  progress is proven frame-for-frame; the ProRes/H.264 path is written against
-  AE's documented per-frame log format but has not yet parsed a real one.
-- No auth beyond a single shared bearer token, over plain HTTP. **Run it on a
-  private network.** If you must expose it, put it behind a TLS reverse proxy,
-  rotate the token, and consider per-machine tokens — none of which this
-  implements today.
+Software limitations, worst first. None of these are hidden behind an
+optimistic README.
+
+| Gap | Detail |
+|---|---|
+| **Movie-file progress unvalidated** | Image-sequence progress is proven frame-for-frame against a real 13,404-frame render. The ProRes/H.264 path parses AE's per-frame log and is written to the documented format, but **has never parsed a real one** — only a synthetic fixture. First live movie render either confirms it or needs a regex tweak. |
+| **Not packaged** | "Companion app" means a Python file plus a JSON config. The installer vendors its own checksum-verified interpreter, so it *is* one command — but it is not a signed, double-clickable `.app`/`.exe`. |
+| **One shared bearer token, plain HTTP** | Fine on a tailnet. **Do not expose the server publicly.** No TLS, no per-machine tokens, no rotation mechanism beyond editing the config. |
+| **AE reports no percent from the panel alone** | Adobe exposes no per-item progress to scripting. Percent comes from counting frames (sequences) or parsing the log (movies); with neither, the bar is honestly empty. |
+| **Resolve requires Studio** | The free version has no scripting API. The watcher degrades to a heartbeat rather than failing, but it cannot see jobs. |
+| **Windows installer is less travelled** | `bootstrap.ps1` parses clean against the real Windows PowerShell parser and the Task Scheduler path is in daily use, but the full script has had fewer end-to-end runs than the shell one. |
+
+### Verified
+
+So the above reads as caution, not doubt about the rest:
+
+- Sequence completion, gap detection and stall detection — against a real
+  13,404-frame render and a synthetic harness.
+- Resolve queue transitions — 6-case harness (baseline, no-change, single fire,
+  no duplicate, failure, cancel).
+- Multi-program-per-machine, offline detection, history dedupe.
+- Checksum rejection of a tampered Python tarball.
+- Auth: 200 with a token, 401 without, on every write route.
+
+## Deployment
+
+This repo is the software. For the Toldwell estate — which host runs what,
+how to push a change, and what is outstanding — see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Credits
 
