@@ -107,7 +107,12 @@ def state():
                                " FROM history ORDER BY ts DESC LIMIT 25")]
     c.close()
     active = sum(1 for m in machines for j in m["jobs"] if j.get("state") in ACTIVE)
-    return {"machines": machines, "history": hist, "active": active, "now": now}
+    # Expose the count a monitor actually wants to assert on. Making Gatus
+    # express "every machine is online" in JSONPath was fragile and silently
+    # evaluated false; `offline == 0` is unambiguous and self-documenting.
+    offline = sum(1 for m in machines if not m["online"])
+    return {"machines": machines, "history": hist, "active": active,
+            "offline": offline, "now": now}
 
 
 PAGE = """<!doctype html><html lang=en><head><meta charset=UTF-8>
