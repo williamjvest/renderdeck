@@ -49,8 +49,32 @@ Where a watcher genuinely cannot know, it says so instead of guessing.
 | `server/renderdeck-server` | collector + dashboard. stdlib only, SQLite. |
 | `watchers/renderdeck-resolve` | DaVinci Resolve render queue, per job |
 | `watchers/renderdeck-ae-sequence` | AE image-sequence renders: progress, completion, stalls, **missing frames** |
-| `watchers/renderdeck-ae-panel.jsx` | AE ScriptUI panel for GUI renders (Win + mac) |
+| `watchers/renderdeck-ae-panel.jsx` | AE ScriptUI panel — publishes the render queue for the AE watcher to report |
 | `install/setup.py` | writes the config |
+
+## How the After Effects side fits together
+
+AE's Post-Render Action can only Import / Import & Replace Usage / Set Proxy —
+there is no "run a command" — so a resident panel is the only supported way to
+observe a GUI render. But ExtendScript has no HTTP client worth trusting and
+`system.callSystem()` **blocks the AE UI**, so a panel that phoned home on a
+timer would stutter the app you're trying to watch.
+
+So the work is split:
+
+```
+ AE panel  ──writes──▶  ~/.local/share/renderdeck/ae-queue.json  ──read──▶  renderdeck-ae  ──POST──▶  server
+ (reads the queue)                                                          (already running)
+```
+
+The panel does the one thing only it can do. The watcher, already running as a
+service, does the network. Panel closed or AE shut and the watcher falls back to
+sequence-watching or presence on its own.
+
+**AE reports `percent: null`** — it exposes no per-item progress to scripting,
+and a bar faked from elapsed time drifts from reality. An honest empty bar beats
+an invented one. Point the watcher at an image-sequence output with `--expect`
+and you get real, frame-counted progress instead.
 
 ## Job model
 

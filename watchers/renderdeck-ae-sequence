@@ -36,6 +36,7 @@ exact failure this tool was written to prevent.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -44,6 +45,15 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import renderdeck            # noqa: E402
+# Written by renderdeck-ae-panel.jsx. ExtendScript has no usable HTTP client
+# and system.callSystem() BLOCKS the AE UI, so the panel publishes the queue to
+# a file and this watcher -- already running as a service -- does the network.
+PANEL_FILE = os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/share"),
+    "renderdeck", "ae-queue.json") if os.name == "nt" else os.path.expanduser(
+    "~/.local/share/renderdeck/ae-queue.json")
+PANEL_MAX_AGE = 30          # seconds; older than this and the panel is gone
+
 SEQ_EXT = {".tif", ".tiff", ".png", ".exr", ".dpx", ".jpg", ".jpeg", ".tga"}
 NUM_RE = re.compile(r"(\d+)(?=\.[^.]+$)")
 
@@ -144,6 +154,37 @@ def describe(info, name):
     return f"{name}\n{base} - last frame {info['idle_min']:.1f} min ago"
 
 
+def panel_jobs():
+    """
+    Jobs published by the AE panel, or None when it isn't running.
+
+    None and [] mean different things: None is "no panel, fall back to whatever
+    else this watcher can see", [] is "panel is live and the queue is empty".
+    Collapsing them would make an idle panel look like no panel.
+    """
+    try:
+        st = os.stat(PANEL_FILE)
+    except OSError:
+        return None
+    if time.time() - st.st_mtime > PANEL_MAX_AGE:
+        return None
+    try:
+        with open(PANEL_FILE) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    out = []
+    for j in data.get("jobs", []):
+        try:
+            out.append(renderdeck.job(
+                id=j.get("id"), name=j.get("name"), state=j.get("state"),
+                percent=j.get("percent"), elapsed_s=j.get("elapsed_s"),
+                output=j.get("output"), error=j.get("error")))
+        except ValueError:
+            continue                     # unknown state: skip, don't poison the batch
+    return out
+
+
 def push(title, body, priority="default", tags="", dry_run=False):
     if dry_run:
         print("--- would push ---", flush=True)
@@ -193,7 +234,10 @@ def main():
               flush=True)
         while True:
             try:
-                renderdeck.report("After Effects", [])
+                pj = panel_jobs()
+                renderdeck.report("After Effects", pj if pj is not None else [])
+                if pj:
+                    print(f"panel: {len(pj)} job(s)", flush=True)
             except Exception as e:                  # noqa: BLE001
                 print(f"report failed: {e}", flush=True)
             if args.status or args.once:
@@ -221,7 +265,9 @@ def main():
         # even when a verdict isn't notification-worthy.
         if not args.dry_run:
             try:
-                renderdeck.report("After Effects", wire(info, name))
+                pj = panel_jobs()
+                renderdeck.report("After Effects",
+                                  pj if pj is not None else wire(info, name))
             except Exception as e:                  # noqa: BLE001
                 print(f"report failed: {e}", flush=True)
 
