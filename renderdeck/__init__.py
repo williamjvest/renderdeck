@@ -1,5 +1,5 @@
 """renderdeck — one dashboard for every render queue on every machine."""
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .model import job, STATES, TERMINAL          # noqa: F401
 from .report import report                        # noqa: F401
