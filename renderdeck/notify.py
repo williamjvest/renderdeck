@@ -20,7 +20,15 @@ def push(title: str, message: str, priority: str = "default",
     n = cfg.get("ntfy") or {}
     if not n.get("url") or not n.get("topic"):
         return False
-    headers = {"Title": title, "Priority": priority}
+    # Cloudflare fingerprints and blocks urllib's default User-Agent
+    # ("Python-urllib/3.x") with error 1010 — a 403 that looks exactly like bad
+    # credentials but isn't. ntfy behind a Cloudflare tunnel hits this; curl
+    # sails through, which is why manual testing hid it. Always send a UA.
+    headers = {
+        "Title": title,
+        "Priority": priority,
+        "User-Agent": "renderdeck/0.1 (+https://github.com/williamjvest/renderdeck)",
+    }
     if tags:
         headers["Tags"] = tags
     if n.get("user"):

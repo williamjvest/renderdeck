@@ -24,6 +24,7 @@ def report(app: str, jobs: list[dict], cfg: dict | None = None, timeout: int = 8
         cfg["collector"].rstrip("/") + "/api/report",
         data=body, method="POST",
         headers={"Content-Type": "application/json",
+                 "User-Agent": "renderdeck/0.1",
                  "Authorization": f"Bearer {cfg.get('token','')}"})
     try:
         urllib.request.urlopen(req, timeout=timeout).read()
