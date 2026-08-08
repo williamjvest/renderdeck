@@ -39,12 +39,25 @@ vault-ssh <host> "cd ~/renderdeck && curl -fsSL \
 ## Outstanding
 
 - [ ] **Validate movie-file progress on a real ProRes render** (see README).
-- [ ] **The AE ScriptUI panel is installed nowhere.** `watchers/renderdeck-ae-panel.jsx`
-      ships in the repo but is not in any machine's `Scripts/ScriptUI Panels/`,
-      so no Mac publishes its AE queue and movie renders have no log to parse.
-      Emmett (AE 2026) is the one that matters.
+- [ ] **Open the AE panel once per AE session** — `Window > renderdeck-ae-panel.jsx`,
+      then dock it. The file is installed on all three AE machines, but a
+      ScriptUI panel only runs while it is open; unopened, the watcher falls
+      back to presence mode and movie renders have no log to parse.
 - [ ] Consider per-machine tokens so one leaked config does not mean a full
       estate rotation.
+
+## Where the AE panel lives
+
+Two different paths, both correct — checking only one of them will tell you it
+is missing when it is not.
+
+| | |
+|---|---|
+| macOS (Asmond, Emmett) | `~/Library/Preferences/Adobe/After Effects/<ver>/Scripts/ScriptUI Panels/` — **user-level**, one copy per version dir, no sudo |
+| Windows (Rynn) | `C:\Program Files\Adobe\Adobe After Effects 2026\Support Files\Scripts\ScriptUI Panels\` — app-level |
+
+The app-level `/Applications/Adobe After Effects <ver>/Scripts/ScriptUI Panels/`
+on a Mac is **not** where these are installed.
 
 ## Gotchas specific to this estate
 
