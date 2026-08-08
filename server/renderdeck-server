@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""
+renderdeck-server — one place to see every render across every machine.
+
+Runs on the VPS. Agents on Rynn / Emmett / Asmond POST their current job state;
+this keeps the latest snapshot per machine plus a history of finished jobs, and
+serves a dashboard.
+
+Push, not poll, deliberately: the render machines sleep, change IPs, and sit
+behind NAT. A collector that polls them is wrong half the time. A machine that
+hasn't reported in --stale-seconds is shown as offline rather than silently
+dropped, so "nothing rendering" and "we lost contact" never look the same —
+which is the same class of mistake as reading a finished render as a dead one.
+
+    renderdeck-server --bind 0.0.0.0 --port 8090
+
+Endpoints
+    POST /api/report   {machine, app, jobs:[...]}   Bearer token
+    GET  /api/state    combined JSON
+    GET  /             dashboard
+    GET  /healthz      liveness for Gatus
+
+Job shape (the common model every adapter emits):
+    {id, name, state, percent, elapsed_s, output, error}
+    state: rendering | complete | failed | cancelled | stalled
+"""
+
+import argparse
+import json
+import os
+import sqlite3
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+DB = os.environ.get("RENDERDECK_DB") or os.path.expanduser(
+    "~/.local/share/renderdeck/state.db")
+TOKEN = os.environ.get("RENDERDECK_TOKEN", "")
+STALE = 180
+
+ACTIVE = {"rendering", "stalled"}
+
+
+def db():
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
+    c = sqlite3.connect(DB, timeout=10)
+    c.execute("""CREATE TABLE IF NOT EXISTS snapshot(
+        machine TEXT PRIMARY KEY, app TEXT, jobs TEXT, ts REAL)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS history(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, machine TEXT, app TEXT,
+        job_id TEXT, name TEXT, state TEXT, elapsed_s REAL, output TEXT,
+        error TEXT, ts REAL, UNIQUE(machine, job_id, state))""")
+    return c
+
+
+def record(machine, app, jobs):
+    c = db()
+    now = time.time()
+    c.execute("REPLACE INTO snapshot VALUES(?,?,?,?)",
+              (machine, app, json.dumps(jobs), now))
+    for j in jobs:
+        if j.get("state") in ("complete", "failed", "cancelled"):
+            # UNIQUE(machine, job_id, state) makes re-reporting the same
+            # terminal job a no-op instead of duplicating history rows.
+            c.execute("INSERT OR IGNORE INTO history"
+                      "(machine,app,job_id,name,state,elapsed_s,output,error,ts)"
+                      " VALUES(?,?,?,?,?,?,?,?,?)",
+                      (machine, app, j.get("id"), j.get("name"), j.get("state"),
+                       j.get("elapsed_s"), j.get("output"), j.get("error"), now))
+    c.commit()
+    c.close()
+
+
+def state():
+    c = db()
+    now = time.time()
+    machines = []
+    for machine, app, jobs, ts in c.execute(
+            "SELECT machine,app,jobs,ts FROM snapshot ORDER BY machine"):
+        age = now - ts
+        machines.append({
+            "machine": machine, "app": app, "age_s": round(age),
+            "online": age < STALE,
+            "jobs": json.loads(jobs) if age < STALE else [],
+        })
+    hist = [dict(zip(("machine", "app", "name", "state", "elapsed_s", "output", "ts"), r))
+            for r in c.execute("SELECT machine,app,name,state,elapsed_s,output,ts"
+                               " FROM history ORDER BY ts DESC LIMIT 25")]
+    c.close()
+    active = sum(1 for m in machines for j in m["jobs"] if j.get("state") in ACTIVE)
+    return {"machines": machines, "history": hist, "active": active, "now": now}
+
+
+PAGE = """<!doctype html><html lang=en><head><meta charset=UTF-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Render Monitor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#18181b}
+::-webkit-scrollbar-thumb{background:#52525b;border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#f97316}
+</style></head>
+<body class="bg-zinc-950 text-zinc-100 font-sans p-4 sm:p-8 selection:bg-orange-500/30">
+<div class="max-w-6xl mx-auto space-y-6">
+
+  <div class="flex justify-between items-center bg-zinc-900 p-5 sm:p-6 rounded-lg shadow-lg border border-zinc-800">
+    <h1 class="text-2xl sm:text-3xl font-bold text-white tracking-wide">Render <span class="text-orange-500">Monitor</span></h1>
+    <span id=badge class="px-4 py-1.5 bg-zinc-500/10 border border-zinc-500/50 text-zinc-400 rounded-full text-sm font-semibold flex items-center gap-2">
+      <div class="w-2 h-2 rounded-full bg-zinc-500 animate-pulse"></div><span id=badgeText>Connecting...</span>
+    </span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <div class="bg-zinc-900 p-6 rounded-lg shadow-lg border border-zinc-800 h-fit">
+      <h2 class="text-xl font-semibold mb-4 text-zinc-300">Machines</h2>
+      <div id=machines class="space-y-3"></div>
+    </div>
+
+    <div class="lg:col-span-2 space-y-6">
+
+      <div class="bg-zinc-900 p-6 rounded-lg shadow-lg border border-zinc-800">
+        <h2 class="text-xl font-semibold mb-4 text-zinc-300 flex items-center gap-2">Live Queue
+          <span id=qc class="bg-zinc-800 text-orange-400 font-bold text-xs px-2 py-1 rounded-full border border-zinc-700">0</span>
+        </h2>
+        <div class="overflow-x-auto rounded-md border border-zinc-800">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead><tr class="bg-zinc-950 text-zinc-400">
+              <th class="p-3 font-medium">Job / Filename</th>
+              <th class="p-3 font-medium">Status &amp; Progress</th>
+              <th class="p-3 font-medium text-right whitespace-nowrap">Elapsed</th>
+            </tr></thead>
+            <tbody id=queue class="divide-y divide-zinc-800"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bg-zinc-900 p-6 rounded-lg shadow-lg border border-zinc-800">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+          <h2 class="text-xl font-semibold text-zinc-300">Render History</h2>
+          <div class="flex gap-3">
+            <input id=q onkeyup=draw() placeholder="Search project or file..."
+              class="bg-zinc-950 border border-zinc-700 rounded p-1.5 px-3 text-sm text-white w-44 focus:border-orange-500 outline-none transition">
+            <select id=sf onchange=draw()
+              class="bg-zinc-950 border border-zinc-700 rounded p-1.5 text-sm text-white focus:border-orange-500 outline-none transition">
+              <option value=ALL>All Statuses</option><option value=complete>Complete</option>
+              <option value=failed>Failed</option><option value=cancelled>Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="overflow-y-auto max-h-96 rounded-md border border-zinc-800">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead class="sticky top-0 bg-zinc-950 text-zinc-400 shadow-md"><tr>
+              <th class="p-3 font-medium whitespace-nowrap">Time</th>
+              <th class="p-3 font-medium">Machine</th>
+              <th class="p-3 font-medium">Filename</th>
+              <th class="p-3 font-medium">Status</th>
+            </tr></thead>
+            <tbody id=hist class="divide-y divide-zinc-800 bg-zinc-900"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script>
+let D={machines:[],history:[],active:0};
+const esc=s=>String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const base=s=>String(s||'').split(/[\\/]/).pop();
+const dur=s=>{s=Math.round(s||0);const h=s/3600|0,m=(s%3600)/60|0;
+  return h?`${h}h ${m}m`:m?`${m}m ${s%60}s`:`${s}s`};
+const clock=t=>new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+
+function draw(){
+  const on=D.machines.filter(m=>m.online).length;
+  document.getElementById('badgeText').textContent =
+    D.active?`${D.active} rendering`:on?`Idle - ${on} machine${on>1?'s':''} online`:'No machines online';
+  document.getElementById('badge').className =
+    "px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 border "+
+    (D.active?"bg-orange-500/10 border-orange-500/50 text-orange-400"
+      :on?"bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
+         :"bg-zinc-500/10 border-zinc-500/50 text-zinc-400");
+
+  document.getElementById('machines').innerHTML = D.machines.length?D.machines.map(m=>{
+    const busy=m.jobs.filter(j=>['rendering','stalled'].includes(j.state)).length;
+    return `<div class="bg-zinc-950 border border-zinc-800 rounded p-3">
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full ${m.online?(busy?'bg-orange-500 animate-pulse':'bg-emerald-500'):'bg-zinc-600'}"></div>
+        <span class="font-medium text-white">${esc(m.machine)}</span>
+        <span class="ml-auto text-xs text-zinc-500">${esc(m.app)}</span>
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 pl-4">${m.online?(busy?busy+' rendering':'idle'):'no contact for '+dur(m.age_s)}</div>
+    </div>`}).join(''):'<div class="text-sm text-zinc-500">No machines reporting</div>';
+
+  const jobs=[];
+  D.machines.forEach(m=>m.jobs.filter(j=>['rendering','stalled'].includes(j.state))
+    .forEach(j=>jobs.push({...j,machine:m.machine,app:m.app})));
+  document.getElementById('qc').textContent=jobs.length;
+  document.getElementById('queue').innerHTML = jobs.length?jobs.map(j=>{
+    const st=j.state==='stalled';
+    return `<tr class="hover:bg-zinc-950/50">
+      <td class="p-3"><div class="font-medium text-white truncate max-w-[15rem]">${esc(j.name)}</div>
+        <div class="text-xs text-zinc-500">${esc(j.machine)} - ${esc(j.app)}</div></td>
+      <td class="p-3 w-1/2">
+        <div class="flex justify-between text-xs mb-1">
+          <span class="${st?'text-amber-400 font-semibold':'text-orange-400'}">${st?'STALLED':'Rendering'}</span>
+          <span class="text-zinc-400 tabular-nums">${j.percent!=null?j.percent.toFixed(0)+'%':''}</span></div>
+        <div class="w-full bg-zinc-950 rounded-full h-1.5 overflow-hidden border border-zinc-800">
+          <div class="${st?'bg-amber-500':'bg-orange-500'} h-1.5 rounded-full transition-all duration-500" style="width:${j.percent||0}%"></div>
+        </div>
+        ${j.output?`<div class="text-xs text-zinc-600 mt-1 truncate">${esc(base(j.output))}</div>`:''}</td>
+      <td class="p-3 text-right text-zinc-400 tabular-nums whitespace-nowrap">${dur(j.elapsed_s)}</td></tr>`
+  }).join(''):'<tr><td colspan=3 class="p-6 text-center text-zinc-600">Nothing rendering</td></tr>';
+
+  const term=(document.getElementById('q').value||'').toLowerCase();
+  const sf=document.getElementById('sf').value;
+  const rows=D.history.filter(r=>(sf==='ALL'||r.state===sf)&&
+    (!term||`${r.name} ${r.machine} ${r.output||''}`.toLowerCase().includes(term)));
+  const cls={complete:'text-emerald-400',failed:'text-red-400',cancelled:'text-zinc-500'};
+  document.getElementById('hist').innerHTML = rows.length?rows.map(r=>
+    `<tr class="hover:bg-zinc-950/50"><td class="p-3 text-zinc-500 whitespace-nowrap">${clock(r.ts)}</td>
+     <td class="p-3 text-zinc-400">${esc(r.machine)}</td>
+     <td class="p-3 truncate max-w-[16rem]">${esc(r.name)}</td>
+     <td class="p-3 font-medium ${cls[r.state]||'text-zinc-400'}">${esc(r.state)} <span class="text-zinc-600 font-normal">${dur(r.elapsed_s)}</span></td></tr>`
+  ).join(''):'<tr><td colspan=4 class="p-6 text-center text-zinc-600">No history yet</td></tr>';
+}
+async function tick(){try{D=await(await fetch('/api/state')).json()}catch(e){}draw()}
+tick();setInterval(tick,5000);
+</script></body></html>"""
+
+
+class H(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _send(self, code, body, ctype="application/json"):
+        b = body.encode() if isinstance(body, str) else body
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def log_message(self, *a):
+        pass                                  # don't spam the journal on 5s polls
+
+    def do_GET(self):
+        if self.path == "/":
+            return self._send(200, PAGE, "text/html; charset=utf-8")
+        if self.path == "/healthz":
+            return self._send(200, '{"ok":true}')
+        if self.path == "/api/state":
+            return self._send(200, json.dumps(state()))
+        self._send(404, '{"error":"not found"}')
+
+    def do_POST(self):
+        # ALWAYS drain the request body before responding. On HTTP/1.1 with
+        # keep-alive, returning early (404/401) without consuming it leaves
+        # unread bytes in the socket, the next request parses them as garbage,
+        # and the client sees an empty reply -- which reads as "the server is
+        # broken" rather than "you were rejected".
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(n) if n else b""
+
+        if self.path != "/api/report":
+            return self._send(404, '{"error":"not found"}')
+        if TOKEN and self.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return self._send(401, '{"error":"unauthorized"}')
+        try:
+            d = json.loads(raw or b"{}")
+            record(d["machine"], d.get("app", "?"), d.get("jobs", []))
+        except Exception as e:                # noqa: BLE001
+            return self._send(400, json.dumps({"error": str(e)}))
+        self._send(200, '{"ok":true}')
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bind", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8090)
+    a = ap.parse_args()
+    db().close()
+    print(f"renderdeck-server on {a.bind}:{a.port} (token {'set' if TOKEN else 'DISABLED'})",
+          flush=True)
+    ThreadingHTTPServer((a.bind, a.port), H).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""
+ae-sequence-watch — truthful progress + completion for After Effects image-
+sequence renders.
+
+WHY THIS EXISTS (2026-08-08). A finished 9:18 render on Rynn was reported as
+"dead" — twice — because the only signals in play were "AfterFX is still
+running" and "nothing has been written for 17 hours". Neither one can tell you
+whether a render finished or hung:
+
+  * AE is a GUI app. It stays open after a render by design, so a live process
+    means nothing at all.
+  * Absence of new output is ambiguous in BOTH directions. It is what a
+    finished render looks like AND what a stalled one looks like.
+
+The signal that actually disambiguates is the OUTPUT ITSELF: is the sequence
+complete and contiguous? 13,404 frames numbered 0..13403 with no gaps, ending
+on a round comp length, is a finished render — and that was sitting in plain
+sight the whole time.
+
+So this tool never infers from process state. It reads the frames.
+
+    ae-sequence-watch --dir "/path/to/seq" --expect 13404 --fps 24
+    ae-sequence-watch --dir "/path/to/seq" --status        # one-shot, no push
+    ae-sequence-watch --dir "/path/to/seq" --progress-every 30
+
+Verdicts:
+    complete   contiguous, count == expected            -> notify once, exit
+    rendering  growing                                  -> optional progress push
+    stalled    no new frames for --stall-minutes        -> notify once, keep watching
+    gaps       contiguous check failed                  -> notify (this is a BAD render)
+
+Without --expect it cannot say "complete" (there is no denominator), so it
+reports `idle` instead of guessing — deliberately. Guessing completion is the
+exact failure this tool was written to prevent.
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import renderdeck            # noqa: E402
+SEQ_EXT = {".tif", ".tiff", ".png", ".exr", ".dpx", ".jpg", ".jpeg", ".tga"}
+NUM_RE = re.compile(r"(\d+)(?=\.[^.]+$)")
+
+
+def scan(directory):
+    """-> (sorted frame numbers, total bytes, newest mtime) for the sequence."""
+    nums, size, newest = [], 0, 0.0
+    try:
+        with os.scandir(directory) as it:
+            for e in it:
+                if not e.is_file():
+                    continue
+                ext = os.path.splitext(e.name)[1].lower()
+                if ext not in SEQ_EXT:
+                    continue
+                m = NUM_RE.search(e.name)
+                if not m:
+                    continue
+                nums.append(int(m.group(1)))
+                st = e.stat()
+                size += st.st_size
+                newest = max(newest, st.st_mtime)
+    except OSError as e:
+        return None, str(e)
+    nums.sort()
+    return (nums, size, newest), None
+
+
+def gaps_in(nums):
+    if not nums:
+        return []
+    want = set(range(nums[0], nums[-1] + 1))
+    return sorted(want - set(nums))
+
+
+def assess(directory, expect=None, fps=24.0, stall_minutes=20):
+    data, err = scan(directory)
+    if err:
+        return {"verdict": "error", "detail": err}
+    nums, size, newest = data
+    if not nums:
+        return {"verdict": "empty", "detail": "no sequence frames found"}
+
+    gaps = gaps_in(nums)
+    idle_min = (time.time() - newest) / 60.0
+    info = {
+        "count": len(nums),
+        "first": nums[0],
+        "last": nums[-1],
+        "gaps": gaps,
+        "gb": size / 1e9,
+        "idle_min": idle_min,
+        "seconds": len(nums) / fps if fps else None,
+        "expect": expect,
+        "pct": (100.0 * len(nums) / expect) if expect else None,
+    }
+
+    if gaps:
+        info["verdict"] = "gaps"
+    elif expect and len(nums) >= expect:
+        info["verdict"] = "complete"
+    elif idle_min >= stall_minutes:
+        info["verdict"] = "stalled"
+    elif expect:
+        info["verdict"] = "rendering"
+    else:
+        # No denominator -> refuse to call it. See module docstring.
+        info["verdict"] = "idle" if idle_min >= stall_minutes else "rendering"
+    return info
+
+
+def hms(seconds):
+    seconds = int(seconds)
+    h, m = divmod(seconds, 3600)
+    m, s = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def describe(info, name):
+    v = info["verdict"]
+    if v in ("error", "empty"):
+        return f"{name}: {v} - {info.get('detail','')}"
+    base = f"{info['count']:,} frames"
+    if info.get("expect"):
+        base += f" of {info['expect']:,} ({info['pct']:.1f}%)"
+    if info.get("seconds"):
+        base += f" - {hms(info['seconds'])}"
+    base += f" - {info['gb']:.1f} GB"
+
+    if v == "complete":
+        return f"{name}\nCOMPLETE - {base}\ncontiguous, no gaps"
+    if v == "gaps":
+        g = info["gaps"]
+        shown = ", ".join(str(x) for x in g[:8]) + (" ..." if len(g) > 8 else "")
+        return f"{name}\nMISSING FRAMES - {base}\n{len(g)} gap(s): {shown}"
+    if v == "stalled":
+        return f"{name}\nSTALLED - nothing new for {info['idle_min']:.0f} min\n{base}"
+    return f"{name}\n{base} - last frame {info['idle_min']:.1f} min ago"
+
+
+def push(title, body, priority="default", tags="", dry_run=False):
+    if dry_run:
+        print("--- would push ---", flush=True)
+        print(title, flush=True)
+        print(body, flush=True)
+        print("------------------", flush=True)
+        return
+    renderdeck.push(title, body, priority, tags)
+
+
+def wire(info, name):
+    """Translate the sequence verdict into the shared job model."""
+    v = info["verdict"]
+    state = {"complete": "complete", "stalled": "stalled",
+             "gaps": "failed", "rendering": "rendering"}.get(v)
+    if state is None:
+        return []
+    return [renderdeck.job(
+        id=name, name=name, state=state,
+        percent=info.get("pct"),
+        elapsed_s=None,
+        output=info.get("dir"),
+        error=(f"{len(info['gaps'])} missing frame(s)" if v == "gaps" else None))]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", required=True, help="output sequence directory")
+    ap.add_argument("--expect", type=int, help="expected frame count (enables %% and 'complete')")
+    ap.add_argument("--fps", type=float, default=24.0)
+    ap.add_argument("--label", default="")
+    ap.add_argument("--interval", type=int, default=30)
+    ap.add_argument("--stall-minutes", type=int, default=20)
+    ap.add_argument("--progress-every", type=int, default=0,
+                    help="minutes between progress pushes (0 = only terminal states)")
+    ap.add_argument("--status", action="store_true", help="print once and exit")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    name = args.label or os.path.basename(os.path.normpath(args.dir))
+
+    if args.status:
+        info = assess(args.dir, args.expect, args.fps, args.stall_minutes)
+        print(describe(info, name))
+        return 0 if info["verdict"] not in ("error", "empty") else 1
+
+    told = set()
+    last_progress = 0.0
+
+    while True:
+        info = assess(args.dir, args.expect, args.fps, args.stall_minutes)
+        info["dir"] = args.dir
+        v = info["verdict"]
+        print(f"[{time.strftime('%H:%M:%S')}] {v} "
+              f"{info.get('count','')}/{info.get('expect') or '?'}", flush=True)
+
+        # Heartbeat every cycle so the machine stays visible on the dashboard
+        # even when a verdict isn't notification-worthy.
+        if not args.dry_run:
+            try:
+                renderdeck.report("After Effects", wire(info, name))
+            except Exception as e:                  # noqa: BLE001
+                print(f"report failed: {e}", flush=True)
+
+        if v == "complete" and "complete" not in told:
+            push(f"AE done - {name}", describe(info, name), "default",
+                 "white_check_mark", args.dry_run)
+            return 0
+        if v == "gaps" and "gaps" not in told:
+            push(f"AE MISSING FRAMES - {name}", describe(info, name), "high",
+                 "rotating_light", args.dry_run)
+            told.add("gaps")
+        if v == "stalled" and "stalled" not in told:
+            push(f"AE stalled - {name}", describe(info, name), "high",
+                 "warning", args.dry_run)
+            told.add("stalled")
+        if v == "rendering":
+            told.discard("stalled")          # it recovered; allow re-alerting later
+            if args.progress_every and time.time() - last_progress > args.progress_every * 60:
+                push(f"AE rendering - {name}", describe(info, name), "low", "hourglass",
+                     args.dry_run)
+                last_progress = time.time()
+
+        time.sleep(args.interval)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

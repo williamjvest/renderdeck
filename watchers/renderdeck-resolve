@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""
+resolve-render-watch — push an ntfy notification when a DaVinci Resolve render
+job finishes, fails, or is cancelled.
+
+Resolve, like After Effects, has no post-render shell hook. The supported way
+in is its scripting API, so this polls the render job list and reports each
+job's terminal transition.
+
+    resolve-render-watch                 # poll forever (what the LaunchAgent runs)
+    resolve-render-watch --selftest      # report what it can see, then exit
+    resolve-render-watch --once          # one poll cycle, no notifications sent
+    resolve-render-watch --dry-run       # print pushes instead of sending
+
+Design notes:
+
+  * It is safe to run permanently. When Resolve is closed the API handle is
+    simply None, which this treats as "idle", not an error — no log spam, no
+    notification, negligible CPU.
+
+  * Job state is tracked per JobId, so a queue of ten renders produces ten
+    notifications rather than one lumped "queue done". Resolve keeps completed
+    jobs in the list, so tracking transitions (not absolute state) is what
+    prevents re-notifying the same job forever.
+
+  * Baselines on first sight. Whatever is already Complete when the watcher
+    starts is recorded silently — otherwise a restart re-announces every
+    finished job in the queue.
+"""
+
+import argparse
+import os
+import importlib.machinery
+import importlib.util
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import renderdeck            # noqa: E402
+
+RESOLVE_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+RESOLVE_LIB = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+TERMINAL = {"Complete", "Failed", "Cancelled"}
+
+# Seconds a job may sit at the SAME CompletionPercentage before we call it wedged.
+# Borrowed from Fobdor/ResolveRenderMonitor (MIT), which gets this right: a frozen
+# percentage is a much sharper stall signal than "no output for N minutes", because
+# a healthy render can legitimately write nothing for a long stretch on a heavy
+# frame. Percentage plateau means Resolve itself has stopped making progress.
+STALL_SECONDS = 300
+
+
+def gv(d, keys, default=None):
+    """
+    First present key wins.
+
+    Resolve's render-job dicts are not stable across versions — JobId also shows
+    up as RenderJobId, OutputFilename as OutputFileName, TargetDir as
+    TargetDirectory. Hardcoding one spelling silently drops jobs on the versions
+    that use the other.
+    """
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, ""):
+            return v
+    return default
+
+
+def resolve_running():
+    """
+    Is the Resolve APP actually open?
+
+    Do not infer this from the scripting handle. Verified on Asmond with
+    Resolve 21.0.2: after quitting the app, `scriptapp('Resolve')` STILL
+    returns a live object and `GetVersionString()` still answers — Resolve
+    leaves a helper process behind that keeps serving the API. So a handle
+    proves the API is reachable, not that anyone is editing. Checking the
+    process is the only honest signal.
+    """
+    return subprocess.run(["pgrep", "-x", "DaVinci Resolve"],
+                          capture_output=True).returncode == 0
+
+
+def connect():
+    """Return a Resolve handle, or None if the scripting API is unreachable."""
+    os.environ.setdefault("RESOLVE_SCRIPT_API", RESOLVE_API)
+    os.environ.setdefault("RESOLVE_SCRIPT_LIB", RESOLVE_LIB)
+    mods = os.path.join(RESOLVE_API, "Modules")
+    if mods not in sys.path:
+        sys.path.append(mods)
+    try:
+        import DaVinciResolveScript as dvr
+        return dvr.scriptapp("Resolve")
+    except Exception:
+        return None
+
+
+def push(title, body, priority="default", tags="", dry_run=False):
+    if dry_run:
+        print("--- would push ---", flush=True)
+        print(title, flush=True)
+        print(body, flush=True)
+        print("------------------", flush=True)
+        return
+    renderdeck.push(title, body, priority, tags)
+
+
+def human(ms):
+    if not ms:
+        return "unknown"
+    s = int(ms / 1000)
+    h, m = divmod(s, 3600)
+    m, s = divmod(m, 60)
+    return (f"{h}h " if h else "") + (f"{m}m " if m or h else "") + f"{s}s"
+
+
+def poll(resolve, seen, stalls, dry_run=False, announce=True):
+    """One cycle. Returns number of terminal transitions handled."""
+    pm = resolve.GetProjectManager()
+    project = pm.GetCurrentProject() if pm else None
+    if not project:
+        return 0, []
+
+    pname = project.GetName() or "untitled"
+    fired = 0
+
+    jobs = project.GetRenderJobList() or []
+    wire = []                                   # common job model for the dashboard
+
+    # Drop state for jobs no longer in the queue, so a long-lived LaunchAgent
+    # doesn't accumulate dead entries for the life of the process.
+    live = {gv(j, ("JobId", "RenderJobId", "id")) for j in jobs}
+    for gone in [k for k in seen if k not in live]:
+        seen.pop(gone, None)
+        stalls.pop(gone, None)
+
+    for job in jobs:
+        jid = gv(job, ("JobId", "RenderJobId", "id"))
+        if not jid:
+            continue
+        status = project.GetRenderJobStatus(jid) or {}
+        state = status.get("JobStatus")
+        if not state:
+            continue
+
+        pct_now = status.get("CompletionPercentage")
+        wire.append({
+            "id": jid,
+            "name": gv(job, ("RenderJobName", "OutputFilename"), "render"),
+            "state": {"Complete": "complete", "Failed": "failed",
+                      "Cancelled": "cancelled", "Rendering": "rendering"}.get(state, "rendering"),
+            "percent": pct_now,
+            "elapsed_s": (status.get("TimeTakenToRenderInMs") or 0) / 1000.0,
+            "output": os.path.join(gv(job, ("TargetDir", "TargetDirectory"), ""),
+                                   gv(job, ("OutputFilename", "OutputFileName"), "")),
+            "error": status.get("Error"),
+        })
+
+        prev = seen.get(jid)
+        seen[jid] = state
+
+        # --- stall watch: percentage plateau while still "Rendering" ---
+        if state == "Rendering":
+            pct = status.get("CompletionPercentage", 0) or 0
+            st = stalls.get(jid)
+            if st is None or pct > st["pct"]:
+                stalls[jid] = {"pct": pct, "since": time.time(), "alerted": False}
+            elif (not stalls[jid]["alerted"]
+                  and time.time() - stalls[jid]["since"] > STALL_SECONDS):
+                stalls[jid]["alerted"] = True
+                if announce:
+                    mins = STALL_SECONDS // 60
+                    push(f"Resolve STALLED - {pname}",
+                         f"{gv(job, ('RenderJobName', 'OutputFilename'), 'render')}\n"
+                         f"Stuck at {pct}% for over {mins} min - Resolve may be wedged",
+                         "high", "warning", dry_run)
+        else:
+            stalls.pop(jid, None)
+        if stalls.get(jid, {}).get("alerted"):
+            wire[-1]["state"] = "stalled"
+
+        # First sighting: record silently. Prevents a restart from re-announcing
+        # every already-finished job sitting in the queue.
+        if prev is None:
+            continue
+        if state == prev or state not in TERMINAL:
+            continue
+
+        fired += 1
+        if not announce:
+            continue
+
+        name = gv(job, ("RenderJobName", "OutputFilename"), "render")
+        out = os.path.join(gv(job, ("TargetDir", "TargetDirectory"), ""),
+                           gv(job, ("OutputFilename", "OutputFileName"), ""))
+        took = human(status.get("TimeTakenToRenderInMs"))
+
+        if state == "Complete":
+            body = f"{name}\nFinished in {took}"
+            if out.strip(os.sep):
+                body += f"\n{out}"
+                try:
+                    body += f"\n{os.path.getsize(out) / 1e9:.1f} GB"
+                except OSError:
+                    pass
+            push(f"Resolve done - {pname}", body, "default", "white_check_mark", dry_run)
+        elif state == "Failed":
+            err = status.get("Error") or "no error text from Resolve"
+            push(f"Resolve FAILED - {pname}",
+                 f"{name}\nDied after {took}\n{err}", "high", "rotating_light", dry_run)
+        else:  # Cancelled — you did it on purpose, so keep it quiet and low
+            push(f"Resolve cancelled - {pname}", f"{name}\nStopped after {took}",
+                 "low", "black_square_for_stop", dry_run)
+
+    return fired, wire
+
+
+def selftest():
+    print(f"scripting API : {RESOLVE_API}  ({'ok' if os.path.isdir(RESOLVE_API) else 'MISSING'})")
+    print(f"fusionscript  : {'ok' if os.path.exists(RESOLVE_LIB) else 'MISSING'}")
+    cfg = renderdeck.load()
+    print(f"config        : {renderdeck.config_path()}")
+    print(f"collector     : {cfg['collector']}  (token {'set' if cfg['token'] else 'MISSING'})")
+    print(f"machine       : {cfg['machine']}")
+    print(f"python        : {sys.version.split()[0]}")
+    print(f"resolve app   : {'open' if resolve_running() else 'closed'}")
+    r = connect()
+    if not r:
+        print("resolve api   : unreachable (open Resolve and re-run to verify the live path)")
+        print("                also check Preferences > System > General >")
+        print("                'External scripting using' = Local")
+        return 1
+    print(f"resolve api   : reachable, {r.GetVersionString()}")
+    pm = r.GetProjectManager()
+    p = pm.GetCurrentProject() if pm else None
+    if not p:
+        print("project       : none open")
+        return 0
+    jobs = p.GetRenderJobList() or []
+    print(f"project       : {p.GetName()}  ({len(jobs)} render job(s))")
+    for j in jobs:
+        st = p.GetRenderJobStatus(j.get("JobId")) or {}
+        print(f"  - {j.get('RenderJobName') or j.get('OutputFilename')}: "
+              f"{st.get('JobStatus')} {st.get('CompletionPercentage', '')}%")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--interval", type=int, default=5, help="seconds between polls")
+    ap.add_argument("--idle-interval", type=int, default=20,
+                    help="seconds between polls while Resolve is closed")
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
+
+    seen, stalls = {}, {}
+    was_open = None
+
+    while True:
+        # Gate on the APP, not the API handle — see resolve_running().
+        is_open = resolve_running()
+        resolve = connect() if is_open else None
+
+        if is_open != was_open:
+            print(f"resolve {'opened' if is_open else 'closed'}", flush=True)
+            was_open = is_open
+            if not is_open:
+                # Forget job state: a new Resolve session re-baselines rather
+                # than comparing against a previous session's queue.
+                seen.clear()
+                stalls.clear()
+
+        wire = []
+        if resolve is not None:
+            try:
+                _, wire = poll(resolve, seen, stalls, dry_run=args.dry_run)
+            except Exception as e:                  # noqa: BLE001 — keep polling
+                print(f"poll error: {e}", flush=True)
+
+        # Heartbeat EVERY cycle, even with Resolve closed and nothing to send.
+        # Otherwise a machine with the app shut simply disappears from the
+        # dashboard, and "this box is idle" becomes indistinguishable from
+        # "we lost contact with this box" — the exact ambiguity this whole
+        # system exists to remove.
+        if not args.dry_run:
+            try:
+                renderdeck.report("DaVinci Resolve", wire)
+            except Exception as e:                  # noqa: BLE001
+                # Dashboard reporting is strictly optional and must never be
+                # able to kill the watcher that sends the real notifications.
+                print(f"report failed: {e}", flush=True)
+
+        if args.once:
+            return 0
+        time.sleep(args.interval if is_open else args.idle_interval)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
