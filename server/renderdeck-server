@@ -37,6 +37,13 @@ DB = os.environ.get("RENDERDECK_DB") or os.path.expanduser(
 TOKEN = os.environ.get("RENDERDECK_TOKEN", "")
 STALE = 180
 
+# Optional brand mark. Ships as assets/logo.svg.example so the public repo
+# isn't hardcoded to anyone's wordmark: drop your own assets/logo.svg (or set
+# RENDERDECK_LOGO) and the header uses it, otherwise it falls back to the text
+# wordmark. Same pattern ResolveRenderMonitor uses for its logo slot.
+LOGO = os.environ.get("RENDERDECK_LOGO") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "assets", "logo.svg")
+
 ACTIVE = {"rendering", "stalled"}
 
 
@@ -103,7 +110,9 @@ PAGE = """<!doctype html><html lang=en><head><meta charset=UTF-8>
 <div class="max-w-6xl mx-auto space-y-6">
 
   <div class="flex justify-between items-center bg-zinc-900 p-5 sm:p-6 rounded-lg shadow-lg border border-zinc-800">
-    <h1 class="text-2xl sm:text-3xl font-bold text-white tracking-wide">Render <span class="text-orange-500">Monitor</span></h1>
+    <img src="/logo.svg" alt="Render Monitor" class="h-7 sm:h-9 w-auto max-w-[60vw] object-contain"
+         onerror="this.remove();document.getElementById('wordmark').classList.remove('hidden')">
+    <h1 id=wordmark class="hidden text-2xl sm:text-3xl font-bold text-white tracking-wide">Render <span class="text-orange-500">Monitor</span></h1>
     <span id=badge class="px-4 py-1.5 bg-zinc-500/10 border border-zinc-500/50 text-zinc-400 rounded-full text-sm font-semibold flex items-center gap-2">
       <div class="w-2 h-2 rounded-full bg-zinc-500 animate-pulse"></div><span id=badgeText>Connecting...</span>
     </span>
@@ -246,6 +255,14 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             return self._send(200, PAGE, "text/html; charset=utf-8")
+        if self.path == "/logo.svg":
+            if not os.path.exists(LOGO):
+                return self._send(404, "")
+            try:
+                with open(LOGO, "rb") as f:
+                    return self._send(200, f.read(), "image/svg+xml")
+            except OSError:
+                return self._send(404, "")
         if self.path == "/healthz":
             return self._send(200, '{"ok":true}')
         if self.path == "/api/state":
