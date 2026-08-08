@@ -30,8 +30,6 @@ Design notes:
 
 import argparse
 import os
-import importlib.machinery
-import importlib.util
 import subprocess
 import sys
 import time
@@ -265,7 +263,7 @@ def selftest():
     jobs = p.GetRenderJobList() or []
     print(f"project       : {p.GetName()}  ({len(jobs)} render job(s))")
     for j in jobs:
-        st = p.GetRenderJobStatus(j.get("JobId")) or {}
+        st = p.GetRenderJobStatus(gv(j, ("JobId", "RenderJobId", "id"))) or {}
         print(f"  - {j.get('RenderJobName') or j.get('OutputFilename')}: "
               f"{st.get('JobStatus')} {st.get('CompletionPercentage', '')}%")
     return 0

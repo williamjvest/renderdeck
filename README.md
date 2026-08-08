@@ -107,8 +107,12 @@ Every watcher emits exactly this, so notification, history and UI are written on
 RENDERDECK_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))') \
   server/renderdeck-server --bind 0.0.0.0 --port 8090
 
-# each render machine
-python3 install/setup.py --collector http://SERVER:8090 --token TOKEN
+# each render machine — macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/williamjvest/renderdeck/main/install/bootstrap.sh \
+  | bash -s -- --collector http://SERVER:8090 --token TOKEN
+
+# each render machine — Windows (PowerShell)
+.\install\bootstrap.ps1 -Collector http://SERVER:8090 -Token TOKEN
 python3 watchers/renderdeck-resolve                 # Resolve
 python3 watchers/renderdeck-ae-sequence --dir /out/seq --expect 13404 --fps 24
 ```
@@ -144,8 +148,10 @@ Known gaps, stated plainly:
 - **Movie-file progress is unvalidated against a real AE log.** Sequence
   progress is proven frame-for-frame; the ProRes/H.264 path is written against
   AE's documented per-frame log format but has not yet parsed a real one.
-- No auth beyond a single shared bearer token. Fine on a tailnet, not fine on
-  the open internet — don't expose the server publicly.
+- No auth beyond a single shared bearer token, over plain HTTP. **Run it on a
+  private network.** If you must expose it, put it behind a TLS reverse proxy,
+  rotate the token, and consider per-machine tokens — none of which this
+  implements today.
 
 ## Credits
 

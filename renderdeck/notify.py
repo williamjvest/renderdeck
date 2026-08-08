@@ -11,7 +11,11 @@ import base64
 import urllib.error
 import urllib.request
 
+from . import __version__ as _VER
 from .config import load
+
+
+_UA = f"renderdeck/{_VER} (+https://github.com/williamjvest/renderdeck)"
 
 
 def push(title: str, message: str, priority: str = "default",
@@ -27,7 +31,7 @@ def push(title: str, message: str, priority: str = "default",
     headers = {
         "Title": title,
         "Priority": priority,
-        "User-Agent": "renderdeck/0.1 (+https://github.com/williamjvest/renderdeck)",
+        "User-Agent": _UA,
     }
     if tags:
         headers["Tags"] = tags
@@ -40,6 +44,17 @@ def push(title: str, message: str, priority: str = "default",
     try:
         urllib.request.urlopen(req, timeout=15).read()
         return True
+    except urllib.error.HTTPError as e:
+        # Distinguish credentials from everything else. A Cloudflare-fronted
+        # ntfy also answers 403 for a blocked User-Agent, so name that case too
+        # rather than letting it masquerade as a bad password.
+        if e.code in (401, 403):
+            print(f"renderdeck: ntfy rejected the request (HTTP {e.code}) - "
+                  "check ntfy user/password/topic, or a proxy blocking the "
+                  "User-Agent", flush=True)
+        else:
+            print(f"renderdeck: ntfy returned HTTP {e.code}", flush=True)
+        return False
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         print(f"renderdeck: ntfy push failed ({e})", flush=True)
         return False

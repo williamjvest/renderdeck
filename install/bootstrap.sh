@@ -51,11 +51,43 @@ if [ -z "$PY" ]; then
     *) echo "no standalone python for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
   esac
   PBS="https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG"
+  TARBALL="cpython-$PBS_VER+$PBS_TAG-$PLAT-install_only_stripped.tar.gz"
   PYROOT="$HOME/.local/share/renderdeck/python"
-  rm -rf "$PYROOT"; mkdir -p "$PYROOT"
-  curl -fsSL "$PBS/cpython-$PBS_VER+$PBS_TAG-$PLAT-install_only_stripped.tar.gz" -o /tmp/rd-py.tgz
-  tar -xzf /tmp/rd-py.tgz -C "$PYROOT" --strip-components=1
-  rm -f /tmp/rd-py.tgz
+  STAGE=$(mktemp -d)
+
+  # Download and extract to a staging dir, THEN swap. Removing $PYROOT first
+  # meant a network failure mid-download left the machine with no interpreter
+  # at all rather than the one it started with.
+  curl -fsSL "$PBS/$TARBALL" -o "$STAGE/py.tgz"
+
+  # Verify against the release's published SHA256SUMS. Anything executed by a
+  # curl|bash installer has to be checked -- otherwise a compromised mirror or
+  # a hijacked connection runs arbitrary code as the user.
+  if curl -fsSL "$PBS/SHA256SUMS" -o "$STAGE/sums" 2>/dev/null; then
+    want=$(grep " $TARBALL\$" "$STAGE/sums" | awk '{print $1}')
+    if [ -n "$want" ]; then
+      got=$(shasum -a 256 "$STAGE/py.tgz" 2>/dev/null | awk '{print $1}')
+      [ -n "$got" ] || got=$(sha256sum "$STAGE/py.tgz" | awk '{print $1}')
+      if [ "$want" != "$got" ]; then
+        rm -rf "$STAGE"
+        echo "checksum MISMATCH for $TARBALL" >&2
+        echo "  expected $want" >&2
+        echo "  got      $got" >&2
+        exit 1
+      fi
+      echo "    checksum verified"
+    else
+      echo "    WARNING: $TARBALL absent from SHA256SUMS — cannot verify" >&2
+    fi
+  else
+    echo "    WARNING: could not fetch SHA256SUMS — python NOT verified" >&2
+  fi
+
+  mkdir -p "$STAGE/x"
+  tar -xzf "$STAGE/py.tgz" -C "$STAGE/x" --strip-components=1
+  [ -x "$STAGE/x/bin/python3" ] || { rm -rf "$STAGE"; echo "bad python tarball" >&2; exit 1; }
+  rm -rf "$PYROOT"; mkdir -p "$(dirname "$PYROOT")"; mv "$STAGE/x" "$PYROOT"
+  rm -rf "$STAGE"
   PY="$VENDOR"
 fi
 echo "==> python: $("$PY" -V 2>&1)  ($PY)"
@@ -76,6 +108,9 @@ else
   TMP=$(mktemp -d)
   curl -fsSL "$REPO/archive/refs/heads/main.tar.gz" -o "$TMP/rd.tgz"
   mkdir -p "$TMP/x" && tar -xzf "$TMP/rd.tgz" -C "$TMP/x"
+  # Prove the archive is what we think before destroying the existing install.
+  [ -f "$TMP/x/renderdeck-main/install/setup.py" ] || {
+    rm -rf "$TMP"; echo "downloaded archive doesn't look like renderdeck" >&2; exit 1; }
   rm -rf "$DEST"; mkdir -p "$(dirname "$DEST")"
   mv "$TMP/x/renderdeck-main" "$DEST"
   rm -rf "$TMP"
@@ -155,7 +190,7 @@ case "$(uname -s)" in
     loginctl enable-linger "$USER" 2>/dev/null || \
       echo "    note: run 'sudo loginctl enable-linger $USER' so it survives logout"
     ;;
-  *) echo "unsupported OS: $(uname -s). Use install/bootstrap.ps1 on Windows." >&2; exit 1 ;;
+  *) echo "unsupported OS: $(uname -s). On Windows use install/bootstrap.ps1." >&2; exit 1 ;;
 esac
 
 sleep 6

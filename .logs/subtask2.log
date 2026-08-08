@@ -1,0 +1,23 @@
+[2026-08-08T21:34:36.700Z] Plugin initialized: 20 commands [
+  "security-review",
+  "newsession",
+  "learn",
+  "loop",
+  "stack-review",
+  "compound",
+  "vv-search",
+  "projects",
+  "README",
+  "recall",
+  "research",
+  "meeting-notes",
+  "new-project",
+  "truenas-move",
+  "skills-sync",
+  "wrapup",
+  "catchup",
+  "plan",
+  "review",
+  "performance-review"
+]
+[2026-08-08T21:34:37.306Z] Registered /subtask command

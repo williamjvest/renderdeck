@@ -62,10 +62,13 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS snapshot(
         machine TEXT, app TEXT, jobs TEXT, ts REAL,
         PRIMARY KEY (machine, app))""")
+    # UNIQUE includes APP. Without it, AE and Resolve on one machine emitting
+    # the same job_id collide and the second app's row is silently ignored --
+    # data loss that looks like "the render just didn't get logged".
     c.execute("""CREATE TABLE IF NOT EXISTS history(
         id INTEGER PRIMARY KEY AUTOINCREMENT, machine TEXT, app TEXT,
         job_id TEXT, name TEXT, state TEXT, elapsed_s REAL, output TEXT,
-        error TEXT, ts REAL, UNIQUE(machine, job_id, state))""")
+        error TEXT, ts REAL, UNIQUE(machine, app, job_id, state))""")
     return c
 
 

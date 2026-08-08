@@ -48,10 +48,24 @@ import renderdeck            # noqa: E402
 # Written by renderdeck-ae-panel.jsx. ExtendScript has no usable HTTP client
 # and system.callSystem() BLOCKS the AE UI, so the panel publishes the queue to
 # a file and this watcher -- already running as a service -- does the network.
-PANEL_FILE = os.path.join(
-    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/share"),
-    "renderdeck", "ae-queue.json") if os.name == "nt" else os.path.expanduser(
-    "~/.local/share/renderdeck/ae-queue.json")
+def _panel_candidates():
+    """
+    Every place the panel might have written ae-queue.json.
+
+    The panel (ExtendScript) resolves Folder.userData to ROAMING AppData on
+    Windows, while this watcher originally read LOCAL AppData. Different
+    directories -- the panel published and the watcher never saw it, silently
+    falling back to presence mode with nothing in any log. Probe both and take
+    the newest rather than betting on one.
+    """
+    if os.name == "nt":
+        return [os.path.join(base, "renderdeck", "ae-queue.json")
+                for base in (os.environ.get("APPDATA"),
+                             os.environ.get("LOCALAPPDATA")) if base]
+    return [os.path.expanduser("~/.local/share/renderdeck/ae-queue.json")]
+
+
+PANEL_FILES = _panel_candidates()
 PANEL_MAX_AGE = 30          # seconds; older than this and the panel is gone
 
 SEQ_EXT = {".tif", ".tiff", ".png", ".exr", ".dpx", ".jpg", ".jpeg", ".tga"}
@@ -60,7 +74,7 @@ NUM_RE = re.compile(r"(\d+)(?=\.[^.]+$)")
 
 def scan(directory):
     """-> (sorted frame numbers, total bytes, newest mtime) for the sequence."""
-    nums, size, newest = [], 0, 0.0
+    nums, size, newest, oldest = [], 0, 0.0, 0.0
     try:
         with os.scandir(directory) as it:
             for e in it:
@@ -76,24 +90,33 @@ def scan(directory):
                 st = e.stat()
                 size += st.st_size
                 newest = max(newest, st.st_mtime)
+                oldest = st.st_mtime if oldest == 0.0 else min(oldest, st.st_mtime)
     except OSError as e:
         return None, str(e)
     nums.sort()
-    return (nums, size, newest), None
+    return (nums, size, newest, oldest), None
 
 
 def gaps_in(nums):
-    if not nums:
-        return []
-    want = set(range(nums[0], nums[-1] + 1))
-    return sorted(want - set(nums))
+    """
+    Missing frame numbers, in one pass.
+
+    The obvious set(range(first, last+1)) - set(nums) allocates the entire
+    range; a 6-figure sequence with a low frame count would spike memory for
+    no reason. Walk the sorted list instead.
+    """
+    out = []
+    for prev, cur in zip(nums, nums[1:]):
+        if cur > prev + 1:
+            out.extend(range(prev + 1, cur))
+    return out
 
 
 def assess(directory, expect=None, fps=24.0, stall_minutes=20):
     data, err = scan(directory)
     if err:
         return {"verdict": "error", "detail": err}
-    nums, size, newest = data
+    nums, size, newest, oldest = data
     if not nums:
         return {"verdict": "empty", "detail": "no sequence frames found"}
 
@@ -108,6 +131,7 @@ def assess(directory, expect=None, fps=24.0, stall_minutes=20):
         "idle_min": idle_min,
         "seconds": len(nums) / fps if fps else None,
         "expect": expect,
+        "first_mtime": oldest,
         "pct": (100.0 * len(nums) / expect) if expect else None,
     }
 
@@ -205,14 +229,18 @@ def panel_jobs():
     else this watcher can see", [] is "panel is live and the queue is empty".
     Collapsing them would make an idle panel look like no panel.
     """
-    try:
-        st = os.stat(PANEL_FILE)
-    except OSError:
+    newest, newest_mtime = None, 0.0
+    for cand in PANEL_FILES:
+        try:
+            m = os.stat(cand).st_mtime
+        except OSError:
+            continue
+        if m > newest_mtime:
+            newest, newest_mtime = cand, m
+    if newest is None or time.time() - newest_mtime > PANEL_MAX_AGE:
         return None
-    if time.time() - st.st_mtime > PANEL_MAX_AGE:
-        return None
     try:
-        with open(PANEL_FILE) as f:
+        with open(newest) as f:
             data = json.load(f)
     except (OSError, ValueError):
         return None
@@ -248,8 +276,12 @@ def wire(info, name):
              "gaps": "failed", "rendering": "rendering"}.get(v)
     if state is None:
         return []
+    # Discriminate by the run, not the folder. Re-rendering the same directory
+    # produced an identical id, and the server's INSERT OR IGNORE then dropped
+    # the second completion from history as a duplicate.
+    run_id = f"{name}:{int(info.get('first_mtime') or 0)}"
     return [renderdeck.job(
-        id=name, name=name, state=state,
+        id=run_id, name=name, state=state,
         percent=info.get("pct"),
         elapsed_s=None,
         output=info.get("dir"),

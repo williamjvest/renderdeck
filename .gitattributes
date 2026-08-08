@@ -1,0 +1,11 @@
+# Windows PowerShell's parser does not reliably terminate here-strings in an
+# LF-only file — it reports a bogus "string is missing the terminator" that
+# cascades into unrelated brace errors elsewhere in the script. Force CRLF so
+# a checkout on Windows is parseable.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sh  text eol=lf
+
+# .ps1 must stay ASCII: Windows PowerShell 5.1 decodes it as ANSI without a
+# BOM, so a UTF-8 em-dash arrives as bytes the tokenizer reads as a quote.
