@@ -1,4 +1,4 @@
-﻿﻿<#
+﻿<#
   renderdeck bootstrap - Windows.
 
     irm https://raw.githubusercontent.com/williamjvest/renderdeck/main/install/bootstrap.ps1 | iex
