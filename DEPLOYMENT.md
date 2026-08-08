@@ -38,11 +38,11 @@ vault-ssh <host> "cd ~/renderdeck && curl -fsSL \
 
 ## Outstanding
 
-- [ ] **Emmett has the pre-rotation token and no ntfy config.** It was asleep
-      through the rotation, so it will 401 on wake and will not push. Needs one
-      SSH session: re-run `install/setup.py` with the current token plus the
-      ntfy flags.
 - [ ] **Validate movie-file progress on a real ProRes render** (see README).
+- [ ] **The AE ScriptUI panel is installed nowhere.** `watchers/renderdeck-ae-panel.jsx`
+      ships in the repo but is not in any machine's `Scripts/ScriptUI Panels/`,
+      so no Mac publishes its AE queue and movie renders have no log to parse.
+      Emmett (AE 2026) is the one that matters.
 - [ ] Consider per-machine tokens so one leaked config does not mean a full
       estate rotation.
 
