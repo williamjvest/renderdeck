@@ -154,6 +154,49 @@ def describe(info, name):
     return f"{name}\n{base} - last frame {info['idle_min']:.1f} min ago"
 
 
+LOG_FRAME_RE = re.compile(r"(\d+)\s*\((\d+)\)")
+
+
+def movie_progress(output, total_frames):
+    """
+    Progress for a MOVIE-file render, from AE's per-frame log.
+
+    A .mov or .mp4 is one growing file, so there are no frames on disk to
+    count. With logType = ERRORS_AND_PER_FRAME_INFO, AE writes a log beside the
+    output containing a line per finished frame; the last one tells us where it
+    is. Returns None if the log isn't there or can't be read -- an absent log
+    means no bar, never a guessed one.
+    """
+    if not output or not total_frames:
+        return None
+    base = os.path.splitext(output)[0]
+    d = os.path.dirname(output) or "."
+    cand = [base + "_LOG.txt", base + ".txt", output + "_LOG.txt"]
+    try:
+        stem = os.path.basename(base).lower()
+        for f in os.listdir(d):
+            lf = f.lower()
+            if lf.endswith(".txt") and "log" in lf and stem[:12] in lf:
+                cand.append(os.path.join(d, f))
+    except OSError:
+        pass
+    for path in cand:
+        try:
+            with open(path, "r", errors="replace") as fh:
+                tail = fh.readlines()[-40:]
+        except OSError:
+            continue
+        best = None
+        for line in reversed(tail):
+            m = LOG_FRAME_RE.search(line)
+            if m:
+                best = int(m.group(2))
+                break
+        if best is not None:
+            return max(0.0, min(100.0, 100.0 * best / float(total_frames)))
+    return None
+
+
 def panel_jobs():
     """
     Jobs published by the AE panel, or None when it isn't running.
@@ -175,10 +218,13 @@ def panel_jobs():
         return None
     out = []
     for j in data.get("jobs", []):
+        pct = j.get("percent")
+        if pct is None and j.get("state") == "rendering":
+            pct = movie_progress(j.get("output"), j.get("total_frames"))
         try:
             out.append(renderdeck.job(
                 id=j.get("id"), name=j.get("name"), state=j.get("state"),
-                percent=j.get("percent"), elapsed_s=j.get("elapsed_s"),
+                percent=pct, elapsed_s=j.get("elapsed_s"),
                 output=j.get("output"), error=j.get("error")))
         except ValueError:
             continue                     # unknown state: skip, don't poison the batch

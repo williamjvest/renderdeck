@@ -71,10 +71,20 @@ The panel does the one thing only it can do. The watcher, already running as a
 service, does the network. Panel closed or AE shut and the watcher falls back to
 sequence-watching or presence on its own.
 
-**AE reports `percent: null`** — it exposes no per-item progress to scripting,
-and a bar faked from elapsed time drifts from reality. An honest empty bar beats
-an invented one. Point the watcher at an image-sequence output with `--expect`
-and you get real, frame-counted progress instead.
+**Progress on After Effects, by output type.** AE exposes no per-item progress
+to scripting, so renderdeck derives it from evidence instead:
+
+| Output | Source of truth |
+|---|---|
+| Image sequence (TIFF/PNG/EXR/DPX) | frames on disk vs expected — exact |
+| Movie file (ProRes, H.264, …) | AE's per-frame log, parsed for the last frame written |
+| Neither available | `null` — an empty bar, never a guessed one |
+
+A `.mov` is one growing file with no frames to count, so the movie path relies
+on `logType = ERRORS_AND_PER_FRAME_INFO`. **The panel sets that automatically**
+on every queued item, so you don't have to remember to enable it — it just has
+to be set before the item starts, since AE rejects settings changes on an
+in-flight render.
 
 ## Job model
 

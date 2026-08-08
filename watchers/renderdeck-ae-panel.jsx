@@ -20,9 +20,17 @@
   the reporting. Panel closed or AE shut: the watcher falls back to presence
   mode on its own.
 
-  ON PERCENT. After Effects exposes no per-item progress through scripting.
-  This reports percent as null rather than inventing one from elapsed time --
-  a fabricated bar that drifts from reality is worse than an honest empty one.
+  ON PERCENT. After Effects exposes no per-item progress through scripting --
+  no percent, no current frame. What it DOES expose is `RQItem.logType`, and
+  with ERRORS_AND_PER_FRAME_INFO it writes a per-frame log beside the output.
+  The panel turns that on automatically and publishes the total frame count
+  (timeSpanDuration / frameDuration), so the watcher can parse the log and
+  produce a real bar for ProRes/H.264 movie output -- not just image sequences,
+  which it can already count on disk.
+
+  Percent is still reported as null by the panel itself: it publishes the
+  INPUTS (total frames, log path) and lets the watcher compute progress from
+  evidence. A bar faked from elapsed time drifts from reality.
 */
 
 (function (thisObj) {
@@ -76,9 +84,22 @@
       try { name = it.comp.name; } catch (e) { name = "item " + i; }
       try { out = it.outputModule(1).file.fsName; } catch (e) { out = ""; }
 
+      /* Ask AE to write a per-frame log next to the output. This is the ONLY
+         progress signal available for a movie-file render -- a .mov has no
+         frames on disk to count. Set once, before it starts rendering; AE
+         rejects settings changes on an in-flight item. */
+      var total = null;
+      try {
+        if (it.status !== RQItemStatus.RENDERING && it.status !== RQItemStatus.DONE) {
+          it.logType = RQItemLogType.ERRORS_AND_PER_FRAME_INFO;
+        }
+        total = Math.round(it.timeSpanDuration / it.comp.frameDuration);
+      } catch (e) { total = null; }
+
       jobs.push('{"id":"' + esc(id) + '","name":"' + esc(name) + '","state":"' + s +
                 '","percent":null,"elapsed_s":' + (elapsed === null ? "null" : elapsed) +
-                ',"output":"' + esc(out) + '","error":null}');
+                ',"output":"' + esc(out) + '","total_frames":' +
+                (total === null ? "null" : total) + ',"error":null}');
     }
 
     return '{"ts":' + Math.round(now / 1000) + ',"jobs":[' + jobs.join(",") + ']}';
