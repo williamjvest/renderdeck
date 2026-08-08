@@ -50,8 +50,13 @@ ACTIVE = {"rendering", "stalled"}
 def db():
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     c = sqlite3.connect(DB, timeout=10)
+    # Keyed on (machine, app), NOT machine alone. A machine runs a watcher per
+    # program, so Asmond reporting Resolve must not overwrite Asmond reporting
+    # After Effects -- with machine as the primary key the two watchers silently
+    # clobbered each other and the dashboard showed whichever reported last.
     c.execute("""CREATE TABLE IF NOT EXISTS snapshot(
-        machine TEXT PRIMARY KEY, app TEXT, jobs TEXT, ts REAL)""")
+        machine TEXT, app TEXT, jobs TEXT, ts REAL,
+        PRIMARY KEY (machine, app))""")
     c.execute("""CREATE TABLE IF NOT EXISTS history(
         id INTEGER PRIMARY KEY AUTOINCREMENT, machine TEXT, app TEXT,
         job_id TEXT, name TEXT, state TEXT, elapsed_s REAL, output TEXT,
@@ -62,7 +67,7 @@ def db():
 def record(machine, app, jobs):
     c = db()
     now = time.time()
-    c.execute("REPLACE INTO snapshot VALUES(?,?,?,?)",
+    c.execute("REPLACE INTO snapshot(machine,app,jobs,ts) VALUES(?,?,?,?)",
               (machine, app, json.dumps(jobs), now))
     for j in jobs:
         if j.get("state") in ("complete", "failed", "cancelled"):
@@ -82,7 +87,7 @@ def state():
     now = time.time()
     machines = []
     for machine, app, jobs, ts in c.execute(
-            "SELECT machine,app,jobs,ts FROM snapshot ORDER BY machine"):
+            "SELECT machine,app,jobs,ts FROM snapshot ORDER BY machine, app"):
         age = now - ts
         machines.append({
             "machine": machine, "app": app, "age_s": round(age),
@@ -191,15 +196,26 @@ function draw(){
       :on?"bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
          :"bg-zinc-500/10 border-zinc-500/50 text-zinc-400");
 
-  document.getElementById('machines').innerHTML = D.machines.length?D.machines.map(m=>{
-    const busy=m.jobs.filter(j=>['rendering','stalled'].includes(j.state)).length;
+  const byMachine={};
+  D.machines.forEach(r=>{(byMachine[r.machine]=byMachine[r.machine]||[]).push(r)});
+  const names=Object.keys(byMachine).sort();
+  document.getElementById('machines').innerHTML = names.length?names.map(name=>{
+    const rows=byMachine[name];
+    const anyOn=rows.some(r=>r.online);
+    const busy=rows.reduce((n,r)=>n+r.jobs.filter(j=>['rendering','stalled'].includes(j.state)).length,0);
     return `<div class="bg-zinc-950 border border-zinc-800 rounded p-3">
       <div class="flex items-center gap-2">
-        <div class="w-2 h-2 rounded-full ${m.online?(busy?'bg-orange-500 animate-pulse':'bg-emerald-500'):'bg-zinc-600'}"></div>
-        <span class="font-medium text-white">${esc(m.machine)}</span>
-        <span class="ml-auto text-xs text-zinc-500">${esc(m.app)}</span>
+        <div class="w-2 h-2 rounded-full ${anyOn?(busy?'bg-orange-500 animate-pulse':'bg-emerald-500'):'bg-zinc-600'}"></div>
+        <span class="font-medium text-white">${esc(name)}</span>
+        ${busy?`<span class="ml-auto text-xs text-orange-400">${busy} rendering</span>`:''}
       </div>
-      <div class="text-xs text-zinc-500 mt-1 pl-4">${m.online?(busy?busy+' rendering':'idle'):'no contact for '+dur(m.age_s)}</div>
+      <div class="mt-2 pl-4 space-y-1">${rows.map(r=>{
+        const b=r.jobs.filter(j=>['rendering','stalled'].includes(j.state)).length;
+        return `<div class="flex items-center gap-2 text-xs">
+          <div class="w-1.5 h-1.5 rounded-full ${r.online?(b?'bg-orange-500':'bg-emerald-600'):'bg-zinc-700'}"></div>
+          <span class="text-zinc-400">${esc(r.app)}</span>
+          <span class="ml-auto text-zinc-600">${r.online?(b?b+' rendering':'idle'):'offline '+dur(r.age_s)}</span>
+        </div>`}).join('')}</div>
     </div>`}).join(''):'<div class="text-sm text-zinc-500">No machines reporting</div>';
 
   const jobs=[];

@@ -171,7 +171,7 @@ def wire(info, name):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", required=True, help="output sequence directory")
+    ap.add_argument("--dir", help="output sequence directory; omit for presence-only mode")
     ap.add_argument("--expect", type=int, help="expected frame count (enables %% and 'complete')")
     ap.add_argument("--fps", type=float, default=24.0)
     ap.add_argument("--label", default="")
@@ -180,8 +180,25 @@ def main():
     ap.add_argument("--progress-every", type=int, default=0,
                     help="minutes between progress pushes (0 = only terminal states)")
     ap.add_argument("--status", action="store_true", help="print once and exit")
+    ap.add_argument("--once", action="store_true", help="one cycle and exit")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    if not args.dir:
+        # Presence mode: no render to inspect, so just keep the machine visible
+        # on the dashboard with After Effects listed as idle. Reporting nothing
+        # would make "AE is installed here and quiet" look identical to "this
+        # machine dropped off", which is the ambiguity the project exists to kill.
+        print("presence mode (no --dir): heartbeating After Effects as idle",
+              flush=True)
+        while True:
+            try:
+                renderdeck.report("After Effects", [])
+            except Exception as e:                  # noqa: BLE001
+                print(f"report failed: {e}", flush=True)
+            if args.status or args.once:
+                return 0
+            time.sleep(max(args.interval, 20))
 
     name = args.label or os.path.basename(os.path.normpath(args.dir))
 
