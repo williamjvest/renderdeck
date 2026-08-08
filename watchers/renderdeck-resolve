@@ -40,8 +40,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import renderdeck            # noqa: E402
 
-RESOLVE_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-RESOLVE_LIB = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+# Resolve's scripting paths and process name differ per platform. Hardcoding
+# the macOS ones made this watcher silently useless on Windows: it registered,
+# started, and exited immediately with nothing in any log.
+if sys.platform == "darwin":
+    RESOLVE_API = ("/Library/Application Support/Blackmagic Design/"
+                   "DaVinci Resolve/Developer/Scripting")
+    RESOLVE_LIB = ("/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
+                   "Libraries/Fusion/fusionscript.so")
+    RESOLVE_PROC = "DaVinci Resolve"
+elif sys.platform == "win32":
+    RESOLVE_API = os.path.expandvars(
+        r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting")
+    RESOLVE_LIB = os.path.expandvars(
+        r"%PROGRAMFILES%\Blackmagic Design\DaVinci Resolve\fusionscript.dll")
+    RESOLVE_PROC = "Resolve.exe"
+else:
+    RESOLVE_API = "/opt/resolve/Developer/Scripting"
+    RESOLVE_LIB = "/opt/resolve/libs/Fusion/fusionscript.so"
+    RESOLVE_PROC = "resolve"
+
 TERMINAL = {"Complete", "Failed", "Cancelled"}
 
 # Seconds a job may sit at the SAME CompletionPercentage before we call it wedged.
@@ -72,15 +90,21 @@ def resolve_running():
     """
     Is the Resolve APP actually open?
 
-    Do not infer this from the scripting handle. Verified on Asmond with
-    Resolve 21.0.2: after quitting the app, `scriptapp('Resolve')` STILL
-    returns a live object and `GetVersionString()` still answers — Resolve
-    leaves a helper process behind that keeps serving the API. So a handle
-    proves the API is reachable, not that anyone is editing. Checking the
-    process is the only honest signal.
+    Do not infer this from the scripting handle. Verified on macOS with Resolve
+    21.0.2: after quitting the app, `scriptapp('Resolve')` STILL returns a live
+    object and `GetVersionString()` still answers — a helper process keeps
+    serving the API. A handle proves the API is reachable, not that anyone is
+    editing. Checking the process is the only honest signal.
     """
-    return subprocess.run(["pgrep", "-x", "DaVinci Resolve"],
-                          capture_output=True).returncode == 0
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {RESOLVE_PROC}"],
+                                 capture_output=True, text=True, timeout=15).stdout
+            return RESOLVE_PROC.lower() in out.lower()
+        return subprocess.run(["pgrep", "-x", RESOLVE_PROC],
+                              capture_output=True, timeout=15).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def connect():
