@@ -12,17 +12,21 @@ set -euo pipefail
 
 COLLECTOR=""; TOKEN=""; MACHINE=""; REPO="https://github.com/williamjvest/renderdeck"
 DEST="$HOME/renderdeck"
+SUFFIX=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --collector) COLLECTOR="$2"; shift 2 ;;
     --token)     TOKEN="$2";     shift 2 ;;
     --machine)   MACHINE="$2";   shift 2 ;;
-    --dest)      DEST="$2";      shift 2 ;;
+    --dest)      DEST="$2";      shift 2 ;;   # non-default dest gets its own service label
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$COLLECTOR" ] && [ -n "$TOKEN" ] || { echo "need --collector and --token" >&2; exit 2; }
+# A --dest install must not reuse the default service labels, or a test run
+# silently repoints the real watchers at the throwaway copy. Learned live.
+[ "$DEST" = "$HOME/renderdeck" ] || SUFFIX="-$(basename "$DEST")"
 
 command -v python3 >/dev/null || { echo "python3 not found" >&2; exit 1; }
 echo "==> python: $(python3 -V 2>&1)"
@@ -44,8 +48,8 @@ mkdir -p "$HOME/.local/share/renderdeck"
 
 install_launchd() {
   local name=$1 script=$2 extra=$3
-  local plist="$HOME/Library/LaunchAgents/com.renderdeck.$name.plist"
-  python3 - "$plist" "$PY" "$DEST/watchers/$script" "$extra" "$HOME" "$name" <<'PYEOF'
+  local plist="$HOME/Library/LaunchAgents/com.renderdeck.$name$SUFFIX.plist"
+  python3 - "$plist" "$PY" "$DEST/watchers/$script" "$extra" "$HOME" "$name$SUFFIX" <<'PYEOF'
 import plistlib, sys
 plist, py, script, extra, home, name = sys.argv[1:7]
 args = [py, script] + ([a for a in extra.split() if a])
@@ -60,13 +64,13 @@ plistlib.dump({
 PYEOF
   launchctl unload "$plist" 2>/dev/null || true
   launchctl load "$plist"
-  echo "    launchd: com.renderdeck.$name"
+  echo "    launchd: com.renderdeck.$name$SUFFIX"
 }
 
 install_systemd() {
   local name=$1 script=$2 extra=$3
   mkdir -p "$HOME/.config/systemd/user"
-  cat > "$HOME/.config/systemd/user/renderdeck-$name.service" <<UNIT
+  cat > "$HOME/.config/systemd/user/renderdeck-$name$SUFFIX.service" <<UNIT
 [Unit]
 Description=renderdeck $name watcher
 [Service]
@@ -77,8 +81,8 @@ RestartSec=30
 WantedBy=default.target
 UNIT
   systemctl --user daemon-reload
-  systemctl --user enable --now "renderdeck-$name" >/dev/null
-  echo "    systemd --user: renderdeck-$name"
+  systemctl --user enable --now "renderdeck-$name$SUFFIX" >/dev/null
+  echo "    systemd --user: renderdeck-$name$SUFFIX"
 }
 
 echo "==> installing services (survive reboot)"
