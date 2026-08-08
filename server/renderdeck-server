@@ -305,6 +305,12 @@ class H(BaseHTTPRequestHandler):
         pass                                  # don't spam the journal on 5s polls
 
     def do_GET(self):
+        # Route on the PATH only. Exact-matching self.path meant any query
+        # string 404'd the dashboard -- a cache-buster, a share link with a
+        # tracking param, anything. It also wasted a debugging cycle: every
+        # `curl /?cb=...` check returned "not found" and looked like the page
+        # had failed to deploy.
+        self.path = urllib.parse.urlsplit(self.path).path or "/"
         if self.path == "/":
             return self._send(200, PAGE, "text/html; charset=utf-8")
         if self.path in STATIC:
@@ -321,6 +327,7 @@ class H(BaseHTTPRequestHandler):
         self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
+        self.path = urllib.parse.urlsplit(self.path).path or "/"
         # ALWAYS drain the request body before responding. On HTTP/1.1 with
         # keep-alive, returning early (404/401) without consuming it leaves
         # unread bytes in the socket, the next request parses them as garbage,
