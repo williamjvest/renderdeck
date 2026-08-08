@@ -51,6 +51,8 @@ Where a watcher genuinely cannot know, it says so instead of guessing.
 | `watchers/renderdeck-ae-sequence` | AE image-sequence renders: progress, completion, stalls, **missing frames** |
 | `watchers/renderdeck-ae-panel.jsx` | AE ScriptUI panel — publishes the render queue for the AE watcher to report |
 | `install/setup.py` | writes the config |
+| `install/bootstrap.sh` | one-command install (macOS/Linux) |
+| `install/migrate-snapshot-pk.py` | one-time DB migration for pre-v0.2 servers |
 
 ## How the After Effects side fits together
 
@@ -114,6 +116,16 @@ python3 watchers/renderdeck-ae-sequence --dir /out/seq --expect 13404 --fps 24
 Resolve additionally needs **Preferences → System → General → External scripting
 using = Local**.
 
+## Server endpoints
+
+| | |
+|---|---|
+| `POST /api/report` | a watcher publishes its jobs (Bearer token) |
+| `POST /api/forget/<machine>` | drop a machine that will never report again (Bearer token) |
+| `GET /api/state` | combined JSON |
+| `GET /healthz` | liveness |
+| `GET /` | dashboard |
+
 ## Notifications
 
 Optional. Configure an [ntfy](https://ntfy.sh) topic in the config and watchers
@@ -122,8 +134,18 @@ still get the dashboard.
 
 ## Status
 
-**v0.1.0 — early.** Running across three machines. Not yet packaged as signed
-binaries; that's next.
+**v0.2.0 — early but in daily use**, across four machines and two programs.
+
+Known gaps, stated plainly:
+
+- Not packaged as signed binaries yet. "Companion app" today means a Python
+  file and a config; the installer vendors its own interpreter so that is a
+  one-command install, but it is not a double-clickable `.app`/`.exe`.
+- **Movie-file progress is unvalidated against a real AE log.** Sequence
+  progress is proven frame-for-frame; the ProRes/H.264 path is written against
+  AE's documented per-frame log format but has not yet parsed a real one.
+- No auth beyond a single shared bearer token. Fine on a tailnet, not fine on
+  the open internet — don't expose the server publicly.
 
 ## Credits
 

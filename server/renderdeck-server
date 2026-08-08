@@ -30,10 +30,15 @@ import json
 import os
 import sqlite3
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DB = os.environ.get("RENDERDECK_DB") or os.path.expanduser(
     "~/.local/share/renderdeck/state.db")
+
+# Removing a machine that will never report again (a decommissioned box, or a
+# probe row from testing). Without this the only way out was hand-editing
+# SQLite on the server, which I did twice before writing it.
 TOKEN = os.environ.get("RENDERDECK_TOKEN", "")
 STALE = 180
 
@@ -296,6 +301,14 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(n) if n else b""
 
+        if self.path.startswith("/api/forget/"):
+            if TOKEN and self.headers.get("Authorization") != f"Bearer {TOKEN}":
+                return self._send(401, '{"error":"unauthorized"}')
+            name = urllib.parse.unquote(self.path[len("/api/forget/"):])
+            c = db()
+            n = c.execute("DELETE FROM snapshot WHERE machine=?", (name,)).rowcount
+            c.commit(); c.close()
+            return self._send(200, json.dumps({"forgot": name, "rows": n}))
         if self.path != "/api/report":
             return self._send(404, '{"error":"not found"}')
         if TOKEN and self.headers.get("Authorization") != f"Bearer {TOKEN}":

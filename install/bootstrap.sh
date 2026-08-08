@@ -127,15 +127,30 @@ UNIT
   echo "    systemd --user: renderdeck-$name$SUFFIX"
 }
 
+# Only install a watcher for a program that is actually here. Tommus reported
+# "After Effects: idle" for months' worth of dashboard real estate despite
+# having no AE installed — a monitor for absent software is noise that trains
+# you to ignore the panel.
+have_ae()      { ls -d /Applications/Adobe*After*Effects* >/dev/null 2>&1 || \
+                 [ -d "/opt/Adobe" ]; }
+have_resolve() { [ -d "/Applications/DaVinci Resolve" ] || [ -d "/opt/resolve" ]; }
+
+echo "==> detecting installed programs"
+have_ae      && echo "    After Effects: yes"   || echo "    After Effects: not installed — skipping"
+have_resolve && echo "    DaVinci Resolve: yes" || echo "    DaVinci Resolve: not installed — skipping"
+if ! have_ae && ! have_resolve; then
+  echo "no supported program found; install AE or Resolve first" >&2; exit 1
+fi
+
 echo "==> installing services (survive reboot)"
 case "$(uname -s)" in
   Darwin)
-    install_launchd ae      renderdeck-ae-sequence "--interval 30"
-    install_launchd resolve renderdeck-resolve     ""
+    have_ae      && install_launchd ae      renderdeck-ae-sequence "--interval 30"
+    have_resolve && install_launchd resolve renderdeck-resolve     ""
     ;;
   Linux)
-    install_systemd ae      renderdeck-ae-sequence "--interval 30"
-    install_systemd resolve renderdeck-resolve     ""
+    have_ae      && install_systemd ae      renderdeck-ae-sequence "--interval 30"
+    have_resolve && install_systemd resolve renderdeck-resolve     ""
     # user services die at logout unless lingering is enabled
     loginctl enable-linger "$USER" 2>/dev/null || \
       echo "    note: run 'sudo loginctl enable-linger $USER' so it survives logout"
