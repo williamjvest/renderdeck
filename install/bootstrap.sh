@@ -39,7 +39,7 @@ PY=""
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import ssl,sqlite3' >/dev/null 2>&1; then
   PY=$(command -v python3)
 fi
-VENDOR="$DEST/.python/bin/python3"
+VENDOR="$HOME/.local/share/renderdeck/python/bin/python3"   # outside $DEST: the fetch wipes $DEST
 if [ -z "$PY" ] && [ -x "$VENDOR" ]; then PY="$VENDOR"; fi
 if [ -z "$PY" ]; then
   echo "==> no usable python3 — installing a private one (no admin, no Xcode)"
@@ -51,9 +51,10 @@ if [ -z "$PY" ]; then
     *) echo "no standalone python for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
   esac
   PBS="https://github.com/astral-sh/python-build-standalone/releases/download/$PBS_TAG"
-  mkdir -p "$DEST/.python"
+  PYROOT="$HOME/.local/share/renderdeck/python"
+  rm -rf "$PYROOT"; mkdir -p "$PYROOT"
   curl -fsSL "$PBS/cpython-$PBS_VER+$PBS_TAG-$PLAT-install_only_stripped.tar.gz" -o /tmp/rd-py.tgz
-  tar -xzf /tmp/rd-py.tgz -C "$DEST/.python" --strip-components=1
+  tar -xzf /tmp/rd-py.tgz -C "$PYROOT" --strip-components=1
   rm -f /tmp/rd-py.tgz
   PY="$VENDOR"
 fi
