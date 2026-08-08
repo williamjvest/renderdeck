@@ -4,3 +4,5 @@ __pycache__/
 state.db
 config.json
 server/assets/logo.svg
+server/assets/apple-touch-icon.png
+server/assets/icon-512.png

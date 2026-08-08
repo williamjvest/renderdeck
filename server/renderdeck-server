@@ -46,8 +46,18 @@ STALE = 180
 # isn't hardcoded to anyone's wordmark: drop your own assets/logo.svg (or set
 # RENDERDECK_LOGO) and the header uses it, otherwise it falls back to the text
 # wordmark. Same pattern ResolveRenderMonitor uses for its logo slot.
-LOGO = os.environ.get("RENDERDECK_LOGO") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "assets", "logo.svg")
+_ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+LOGO = os.environ.get("RENDERDECK_LOGO") or os.path.join(_ASSETS, "logo.svg")
+
+# Home-screen icon. Without an explicit apple-touch-icon iOS renders a
+# screenshot of the page or a bare letter tile — a web clip added to the home
+# screen showed a generic "R". Served alongside the logo so a deployment can
+# brand both.
+STATIC = {
+    "/logo.svg":              (LOGO, "image/svg+xml"),
+    "/apple-touch-icon.png":  (os.path.join(_ASSETS, "apple-touch-icon.png"), "image/png"),
+    "/icon-512.png":          (os.path.join(_ASSETS, "icon-512.png"), "image/png"),
+}
 
 ACTIVE = {"rendering", "stalled"}
 
@@ -118,6 +128,12 @@ def state():
 PAGE = """<!doctype html><html lang=en><head><meta charset=UTF-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Render Monitor</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Renders">
+<meta name="theme-color" content="#09090b">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#18181b}
@@ -291,12 +307,11 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             return self._send(200, PAGE, "text/html; charset=utf-8")
-        if self.path == "/logo.svg":
-            if not os.path.exists(LOGO):
-                return self._send(404, "")
+        if self.path in STATIC:
+            path, ctype = STATIC[self.path]
             try:
-                with open(LOGO, "rb") as f:
-                    return self._send(200, f.read(), "image/svg+xml")
+                with open(path, "rb") as f:
+                    return self._send(200, f.read(), ctype)
             except OSError:
                 return self._send(404, "")
         if self.path == "/healthz":
