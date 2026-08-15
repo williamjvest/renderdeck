@@ -63,6 +63,10 @@ on a Mac is **not** where these are installed.
 
 - **Rynn's Resolve is the free version** — no scripting API, so its Resolve
   watcher heartbeats but never reports jobs. Tommus is the Studio licence.
+- **Windows watcher subprocesses must use `CREATE_NO_WINDOW`.** Rynn's Resolve
+  watcher polls `tasklist`; without that creation flag it flashes a terminal
+  every idle cycle. The Windows bootstrap also kills matching old `pythonw`
+  watchers before restarting them so upgrades cannot accumulate duplicates.
 - **Tommus has no Xcode CLT and no Homebrew**, so `/usr/bin/python3` is a stub
   that opens a GUI dialog. It runs renderdeck's vendored interpreter at
   `~/.local/share/renderdeck/python`.
