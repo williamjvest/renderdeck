@@ -19,8 +19,10 @@ where it actually runs and what is outstanding on the estate.
 - Notifications: ntfy topic `renders` on `ntfy.williamvest.com`.
 - Monitoring: Gatus endpoints `renderdeck` (health) and `renderdeck watchers`
   (asserts `offline == 0`).
-- Token: `vv-vault:RENDER_COLLECTOR_TOKEN`. Rotating it means updating the
-  systemd unit **and** every machine's config; there is no push mechanism.
+- Token: `vv-vault:RENDER_COLLECTOR_TOKEN`. The VPS unit reads it from root-only
+  `/etc/renderdeck.env` (`RENDERDECK_TOKEN=...`); never put the value directly
+  in `renderdeck.service`. Rotating it means regenerating that env file and
+  updating every machine's config; there is no push mechanism.
 
 ## Deploying a change
 
