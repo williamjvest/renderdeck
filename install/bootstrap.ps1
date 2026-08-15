@@ -113,6 +113,16 @@ function Register-Watcher($name, $script, $extra) {
   # launches ONE argument-free .cmd and the shim owns the quoting.
   $cmd = Join-Path $Dest ("run-" + $name + ".cmd")
   $exe = Join-Path $Dest ("watchers\" + $script)
+
+  # Re-running the bootstrap used to orphan the existing pythonw watcher and
+  # then start another copy. Besides duplicate reports, every Resolve copy
+  # polled tasklist and multiplied its visible console flashes. Stop only the
+  # watcher for this exact installed script before replacing its task.
+  $watcherPattern = [regex]::Escape($exe)
+  Get-CimInstance Win32_Process |
+    Where-Object { $_.Name -eq "pythonw.exe" -and $_.CommandLine -match $watcherPattern } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }
+
   $shim = @("@echo off", ('"' + $py + '" "' + $exe + '" ' + $extra))
   Set-Content -Path $cmd -Value $shim -Encoding ASCII
   schtasks /create /f /sc ONLOGON /ru $env:USERNAME /tn "Renderdeck$name" /tr $cmd | Out-Null

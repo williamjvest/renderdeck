@@ -96,8 +96,13 @@ def resolve_running():
     """
     try:
         if sys.platform == "win32":
+            # pythonw does not give child processes a console, but Windows will
+            # create one for console executables such as tasklist unless this
+            # flag is explicit. Without it, every idle poll flashes a terminal
+            # window on the editor's desktop.
             out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {RESOLVE_PROC}"],
-                                 capture_output=True, text=True, timeout=15).stdout
+                                 capture_output=True, text=True, timeout=15,
+                                 creationflags=subprocess.CREATE_NO_WINDOW).stdout
             return RESOLVE_PROC.lower() in out.lower()
         return subprocess.run(["pgrep", "-x", RESOLVE_PROC],
                               capture_output=True, timeout=15).returncode == 0
