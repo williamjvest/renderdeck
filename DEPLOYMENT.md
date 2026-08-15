@@ -39,10 +39,9 @@ vault-ssh <host> "cd ~/renderdeck && curl -fsSL \
 ## Outstanding
 
 - [ ] **Validate movie-file progress on a real ProRes render** (see README).
-- [ ] **Open the AE panel once per AE session** — `Window > renderdeck-ae-panel.jsx`,
-      then dock it. The file is installed on all three AE machines, but a
-      ScriptUI panel only runs while it is open; unopened, the watcher falls
-      back to presence mode and movie renders have no log to parse.
+- [x] **AE queue publishing auto-starts with AE** — `renderdeck-ae-startup.jsx`
+      is installed in every existing version's user-level `Scripts/Startup`
+      folder. The old panel remains only as a manual fallback.
 - [ ] Consider per-machine tokens so one leaked config does not mean a full
       estate rotation.
 
@@ -53,8 +52,8 @@ is missing when it is not.
 
 | | |
 |---|---|
-| macOS (Asmond, Emmett) | `~/Library/Preferences/Adobe/After Effects/<ver>/Scripts/ScriptUI Panels/` — **user-level**, one copy per version dir, no sudo |
-| Windows (Rynn) | `C:\Program Files\Adobe\Adobe After Effects 2026\Support Files\Scripts\ScriptUI Panels\` — app-level |
+| macOS (Asmond, Emmett) | `~/Library/Preferences/Adobe/After Effects/<ver>/Scripts/Startup/` — **user-level**, one copy per version dir, no sudo |
+| Windows (Rynn) | `%APPDATA%\Adobe\After Effects\<ver>\Scripts\Startup\` — **user-level**, no UAC |
 
 The app-level `/Applications/Adobe After Effects <ver>/Scripts/ScriptUI Panels/`
 on a Mac is **not** where these are installed.

@@ -70,6 +70,18 @@
 
     for (var i = 1; i <= rq.numItems; i++) {
       var it = rq.item(i);
+
+      /* Set logging while the item is still queued. Previously this lived
+         below the early continue, so queued items were skipped and movie
+         renders started without the per-frame log needed for progress. */
+      var total = null;
+      try {
+        if (it.status !== RQItemStatus.RENDERING && it.status !== RQItemStatus.DONE) {
+          it.logType = RQItemLogType.ERRORS_AND_PER_FRAME_INFO;
+        }
+        total = Math.round(it.timeSpanDuration / it.comp.frameDuration);
+      } catch (e) { total = null; }
+
       var s = mapState(it.status);
       if (s === null) { continue; }
 
@@ -88,14 +100,6 @@
          progress signal available for a movie-file render -- a .mov has no
          frames on disk to count. Set once, before it starts rendering; AE
          rejects settings changes on an in-flight item. */
-      var total = null;
-      try {
-        if (it.status !== RQItemStatus.RENDERING && it.status !== RQItemStatus.DONE) {
-          it.logType = RQItemLogType.ERRORS_AND_PER_FRAME_INFO;
-        }
-        total = Math.round(it.timeSpanDuration / it.comp.frameDuration);
-      } catch (e) { total = null; }
-
       jobs.push('{"id":"' + esc(id) + '","name":"' + esc(name) + '","state":"' + s +
                 '","percent":null,"elapsed_s":' + (elapsed === null ? "null" : elapsed) +
                 ',"output":"' + esc(out) + '","total_frames":' +

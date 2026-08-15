@@ -49,7 +49,8 @@ Where a watcher genuinely cannot know, it says so instead of guessing.
 | `server/renderdeck-server` | collector + dashboard. stdlib only, SQLite. |
 | `watchers/renderdeck-resolve` | DaVinci Resolve render queue, per job |
 | `watchers/renderdeck-ae-sequence` | AE image-sequence renders: progress, completion, stalls, **missing frames** |
-| `watchers/renderdeck-ae-panel.jsx` | AE ScriptUI panel — publishes the render queue for the AE watcher to report |
+| `watchers/renderdeck-ae-startup.jsx` | AE startup script — automatically publishes the render queue for the watcher |
+| `watchers/renderdeck-ae-panel.jsx` | Legacy/manual ScriptUI fallback |
 | `install/setup.py` | writes the config |
 | `install/bootstrap.sh` | one-command install (macOS/Linux) |
 | `install/migrate-snapshot-pk.py` | one-time DB migration for pre-v0.2 servers |
@@ -65,13 +66,14 @@ timer would stutter the app you're trying to watch.
 So the work is split:
 
 ```
- AE panel  ──writes──▶  ~/.local/share/renderdeck/ae-queue.json  ──read──▶  renderdeck-ae  ──POST──▶  server
- (reads the queue)                                                          (already running)
+AE startup script ──writes──▶ ~/.local/share/renderdeck/ae-queue.json ──read──▶ renderdeck-ae ──POST──▶ server
+(runs automatically)                                                               (already running)
 ```
 
-The panel does the one thing only it can do. The watcher, already running as a
-service, does the network. Panel closed or AE shut and the watcher falls back to
-sequence-watching or presence on its own.
+The startup script does the one thing only AE can do. The watcher, already
+running as a service, does the network. If AE is shut, the watcher falls back
+to sequence-watching or presence on its own. No panel or per-session arming is
+required.
 
 **Progress on After Effects, by output type.** AE exposes no per-item progress
 to scripting, so renderdeck derives it from evidence instead:
@@ -79,7 +81,7 @@ to scripting, so renderdeck derives it from evidence instead:
 | Output | Source of truth |
 |---|---|
 | Image sequence (TIFF/PNG/EXR/DPX) | frames on disk vs expected — exact |
-| Movie file (ProRes, H.264, …) | AE's per-frame log, parsed for the last frame written |
+| Movie file (ProRes, H.264, …) | AE's per-frame log, enabled automatically before rendering and parsed for the last frame written |
 | Neither available | `null` — an empty bar, never a guessed one |
 
 A `.mov` is one growing file with no frames to count, so the movie path relies

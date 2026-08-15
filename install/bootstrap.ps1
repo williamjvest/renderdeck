@@ -134,6 +134,21 @@ Write-Host "==> installing services (survive reboot)"
 if ($haveAe)      { Register-Watcher "AE"      "renderdeck-ae-sequence" "--interval 30" }
 if ($haveResolve) { Register-Watcher "Resolve" "renderdeck-resolve"     "" }
 
+# AE runs scripts in each version's user-level Scripts/Startup folder when it
+# launches. Install there so GUI queue reporting never depends on somebody
+# remembering to open and arm a ScriptUI panel.
+if ($haveAe) {
+  $aePrefs = Join-Path $env:APPDATA "Adobe\After Effects"
+  Get-ChildItem $aePrefs -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^\d' } |
+    ForEach-Object {
+      $startup = Join-Path $_.FullName "Scripts\Startup"
+      New-Item -ItemType Directory -Force $startup | Out-Null
+      Copy-Item "$Dest\watchers\renderdeck-ae-startup.jsx" $startup -Force
+      Write-Host "    AE auto-start: $startup"
+    }
+}
+
 Start-Sleep -Seconds 6
 Write-Host "==> verifying"
 $verify = Join-Path ([IO.Path]::GetTempPath()) "renderdeck-verify.py"

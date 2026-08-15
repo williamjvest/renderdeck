@@ -182,6 +182,14 @@ case "$(uname -s)" in
   Darwin)
     have_ae      && install_launchd ae      renderdeck-ae-sequence "--interval 30"
     have_resolve && install_launchd resolve renderdeck-resolve     ""
+    if have_ae; then
+      for prefs in "$HOME"/Library/Preferences/Adobe/After\ Effects/[0-9]*; do
+        [ -d "$prefs" ] || continue
+        mkdir -p "$prefs/Scripts/Startup"
+        cp "$DEST/watchers/renderdeck-ae-startup.jsx" "$prefs/Scripts/Startup/"
+        echo "    AE auto-start: $prefs/Scripts/Startup"
+      done
+    fi
     ;;
   Linux)
     have_ae      && install_systemd ae      renderdeck-ae-sequence "--interval 30"
