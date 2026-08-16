@@ -10,6 +10,7 @@ where it actually runs and what is outstanding on the estate.
 | Hostinger VPS | server + dashboard | — | systemd `renderdeck`, `/opt/renderdeck` (git clone) |
 | Asmond | Mac | After Effects, DaVinci Resolve | launchd `com.renderdeck.{ae,resolve}` |
 | Emmett | Mac (primary edit) | After Effects, DaVinci Resolve | launchd `com.renderdeck.{ae,resolve}` |
+| Maximus | Mac / M4 Max (Jon Bouvier) | After Effects, DaVinci Resolve Studio 21.0.4.5 | launchd `com.renderdeck.{ae,resolve}` |
 | Rynn | Windows / RTX 5080 | After Effects, DaVinci Resolve (free) | Task Scheduler `Renderdeck{AE,Resolve}` |
 | Tommus | Mac / Resolve Studio | DaVinci Resolve only (no AE installed) | launchd `com.renderdeck.resolve` |
 
