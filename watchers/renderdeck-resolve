@@ -46,7 +46,9 @@ if sys.platform == "darwin":
                    "DaVinci Resolve/Developer/Scripting")
     RESOLVE_LIB = ("/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
                    "Libraries/Fusion/fusionscript.so")
-    RESOLVE_PROC = "DaVinci Resolve"
+    # pgrep -x matches the executable basename (`p_comm`), not the .app bundle
+    # display name. The binary inside "DaVinci Resolve.app" is just `Resolve`.
+    RESOLVE_PROC = "Resolve"
 elif sys.platform == "win32":
     RESOLVE_API = os.path.expandvars(
         r"%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting")

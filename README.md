@@ -168,6 +168,11 @@ So the above reads as caution, not doubt about the rest:
 - Checksum rejection of a tampered Python tarball.
 - Auth: 200 with a token, 401 without, on every write route.
 
+Resolve history is forward-looking from the watcher, but terminal jobs still
+present in the current project's Render Queue are reported to the server on the
+first poll (without re-sending completion notifications). Jobs removed from
+Resolve before the watcher sees them cannot be reconstructed retroactively.
+
 ## Deployment
 
 This repo is the software. For the Toldwell estate — which host runs what,

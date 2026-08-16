@@ -63,6 +63,10 @@ on a Mac is **not** where these are installed.
 
 ## Gotchas specific to this estate
 
+- **macOS process detection uses executable name `Resolve`, not bundle name
+  `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
+  bundle name produces healthy empty heartbeats while silently skipping every
+  queue poll.
 - **Rynn's Resolve is the free version** — no scripting API, so its Resolve
   watcher heartbeats but never reports jobs. Tommus is the Studio licence.
 - **Windows watcher subprocesses must use `CREATE_NO_WINDOW`.** Rynn's Resolve
