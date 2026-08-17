@@ -1,5 +1,7 @@
 /* Host-side queue snapshot called by the renderdeck CEP panel every 2 sec. */
-var renderdeckAeCepStarted = {};
+if (typeof renderdeckAeCepStarted === "undefined") {
+  var renderdeckAeCepStarted = {};
+}
 
 function renderdeckAeCepEsc(s) {
   return String(s === undefined || s === null ? "" : s)
