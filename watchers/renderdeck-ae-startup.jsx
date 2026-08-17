@@ -7,7 +7,20 @@
 */
 
 (function () {
-  if ($.global.__renderdeckAeAutoStarted) { return; }
+  var VERSION = 2;
+  if ($.global.__renderdeckAeAutoVersion === VERSION) { return; }
+
+  /* The publisher cannot write its queue file when AE's "Allow Scripts to
+     Write Files and Access Network" preference is off. A startup script still
+     executes in that state, but File.open/write silently leave zero-byte files
+     on AE 26.3. This managed render-box integration requires that preference,
+     so make the dependency explicit and persistent instead of heartbeating an
+     empty queue forever. The section name is verified from AE 26.3's prefs. */
+  try {
+    app.preferences.savePrefAsLong(
+      "Main Pref Section v2", "Pref_SCRIPTING_FILE_NETWORK_SECURITY", 1);
+    app.preferences.saveToDisk();
+  } catch (ignorePreferenceError) {}
 
   var POLL_MS = 2000;
   var dir = ($.os.toLowerCase().indexOf("win") !== -1)
@@ -71,8 +84,11 @@
   function writeText(file, text) {
     file.encoding = "UTF-8";
     if (!file.open("w")) { throw new Error("cannot open " + file.fsName); }
-    file.write(text);
-    file.close();
+    if (!file.write(text)) {
+      file.close();
+      throw new Error("cannot write " + file.fsName);
+    }
+    if (!file.close()) { throw new Error("cannot close " + file.fsName); }
   }
 
   function tick() {
@@ -83,10 +99,10 @@
       try { writeText(errorFile, (new Date()).toString() + " " + e.toString()); }
       catch (ignoreWriteError) {}
     }
-    app.scheduleTask("__renderdeckAeAutoTick()", POLL_MS, false);
+    app.scheduleTask("$.global.__renderdeckAeAutoTick()", POLL_MS, false);
   }
 
   $.global.__renderdeckAeAutoTick = tick;
-  $.global.__renderdeckAeAutoStarted = true;
+  $.global.__renderdeckAeAutoVersion = VERSION;
   tick();
 })();

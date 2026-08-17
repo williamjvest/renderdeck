@@ -74,6 +74,12 @@ on a Mac is **not** where these are installed.
   this is effectively its finish time, not start time. For a terminal job
   recovered after watcher installation/restart, it is the import time because
   Resolve does not expose that queue entry's original timestamps.
+- **AE queue publishing requires "Allow Scripts to Write Files and Access
+  Network."** The managed startup publisher enables
+  `Pref_SCRIPTING_FILE_NETWORK_SECURITY` at launch and verifies every file
+  write/close. AE 26.3 otherwise executes the script but leaves zero-byte queue
+  and error files, while the Python watcher keeps sending healthy empty
+  heartbeats.
 - **macOS process detection uses executable name `Resolve`, not bundle name
   `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
   bundle name produces healthy empty heartbeats while silently skipping every
