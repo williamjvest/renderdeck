@@ -146,6 +146,29 @@ if ($haveAe) {
       New-Item -ItemType Directory -Force $startup | Out-Null
       Copy-Item "$Dest\watchers\renderdeck-ae-startup.jsx" $startup -Force
       Write-Host "    AE auto-start: $startup"
+
+      # The publisher needs AE's managed file/network scripting preference.
+      # A script cannot safely grant this to itself. Replace the one same-length
+      # ASCII value in place so the prefs encoding and unrelated values survive.
+      Get-ChildItem $_.FullName -Filter "Adobe After Effects * Prefs.txt" -File -EA SilentlyContinue |
+        ForEach-Object {
+          $bytes = [IO.File]::ReadAllBytes($_.FullName)
+          $old = [Text.Encoding]::ASCII.GetBytes('"Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "0"')
+          $changed = $false
+          for ($i = 0; $i -le $bytes.Length - $old.Length; $i++) {
+            $match = $true
+            for ($j = 0; $j -lt $old.Length; $j++) {
+              if ($bytes[$i + $j] -ne $old[$j]) { $match = $false; break }
+            }
+            if ($match) {
+              $bytes[$i + $old.Length - 2] = [byte][char]'1'
+              [IO.File]::WriteAllBytes($_.FullName, $bytes)
+              $changed = $true
+              Write-Host "    AE file/network scripting: enabled in $($_.Name)"
+              break
+            }
+          }
+        }
     }
 }
 

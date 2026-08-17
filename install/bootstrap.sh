@@ -188,6 +188,22 @@ case "$(uname -s)" in
         mkdir -p "$prefs/Scripts/Startup"
         cp "$DEST/watchers/renderdeck-ae-startup.jsx" "$prefs/Scripts/Startup/"
         echo "    AE auto-start: $prefs/Scripts/Startup"
+        # Startup scripts execute even when AE's file/network scripting access
+        # is disabled, but File.write leaves a zero-byte queue file. Enable the
+        # required managed preference before AE's next launch. Byte replacement
+        # preserves the prefs file's encoding and every unrelated setting.
+        "$PY" - "$prefs" <<'PYEOF'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+old = b'"Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "0"'
+new = b'"Pref_SCRIPTING_FILE_NETWORK_SECURITY" = "1"'
+for path in root.glob("Adobe After Effects * Prefs.txt"):
+    data = path.read_bytes()
+    if old in data:
+        path.write_bytes(data.replace(old, new, 1))
+        print(f"    AE file/network scripting: enabled in {path.name}")
+PYEOF
       done
     fi
     ;;

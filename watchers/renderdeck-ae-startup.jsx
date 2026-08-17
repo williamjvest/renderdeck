@@ -10,17 +10,17 @@
   var VERSION = 2;
   if ($.global.__renderdeckAeAutoVersion === VERSION) { return; }
 
-  /* The publisher cannot write its queue file when AE's "Allow Scripts to
-     Write Files and Access Network" preference is off. A startup script still
-     executes in that state, but File.open/write silently leave zero-byte files
-     on AE 26.3. This managed render-box integration requires that preference,
-     so make the dependency explicit and persistent instead of heartbeating an
-     empty queue forever. The section name is verified from AE 26.3's prefs. */
+  /* A script cannot reliably grant itself file access: that would defeat AE's
+     security setting. The installer enables it in the prefs file. Reload here
+     so a managed in-place repair can take effect without killing a live render.
+     If it is still off, do not create deceptive zero-byte queue/error files. */
   try {
-    app.preferences.savePrefAsLong(
-      "Main Pref Section v2", "Pref_SCRIPTING_FILE_NETWORK_SECURITY", 1);
-    app.preferences.saveToDisk();
-  } catch (ignorePreferenceError) {}
+    app.preferences.reload();
+    if (app.preferences.getPrefAsLong(
+        "Main Pref Section", "Pref_SCRIPTING_FILE_NETWORK_SECURITY") !== 1) {
+      return;
+    }
+  } catch (preferenceError) { return; }
 
   var POLL_MS = 2000;
   var dir = ($.os.toLowerCase().indexOf("win") !== -1)
