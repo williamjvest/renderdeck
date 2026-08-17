@@ -7,7 +7,7 @@
 */
 
 (function () {
-  var VERSION = 2;
+  var VERSION = 3;
   if ($.global.__renderdeckAeAutoVersion === VERSION) { return; }
 
   /* A script cannot reliably grant itself file access: that would defeat AE's
