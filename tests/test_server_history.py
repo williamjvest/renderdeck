@@ -19,6 +19,36 @@ def load_server():
 
 
 class ServerHistoryTest(unittest.TestCase):
+    def test_report_validation_bounds_untrusted_fields(self) -> None:
+        server = load_server()
+        machine, app, jobs = server.normalize_report({
+            "machine": "Maximus",
+            "app": "DaVinci Resolve",
+            "jobs": [{"id": "abc", "name": "Client.mov", "state": "rendering",
+                      "percent": 42.5, "elapsed_s": 10, "output": "/tmp/Client.mov",
+                      "error": None}],
+        })
+        self.assertEqual((machine, app, jobs[0]["percent"]),
+                         ("Maximus", "DaVinci Resolve", 42.5))
+
+        bad_reports = [
+            {"machine": "", "app": "Resolve", "jobs": []},
+            {"machine": "M", "app": "Resolve", "jobs": "not-a-list"},
+            {"machine": "M", "app": "Resolve", "jobs": [
+                {"id": "x", "name": "x", "state": "evil", "percent": 10}]},
+            {"machine": "M", "app": "Resolve", "jobs": [
+                {"id": "x", "name": "x", "state": "rendering",
+                 "percent": '\" onmouseover="alert(1)'}]},
+            {"machine": "M", "app": "Resolve", "jobs": [
+                {"id": "x", "name": "x", "state": "rendering", "percent": 101}]},
+            {"machine": "M", "app": "Resolve", "jobs": [
+                {"id": "x", "name": "x", "state": "rendering",
+                 "elapsed_s": 10 ** 1000}]},
+        ]
+        for report in bad_reports:
+            with self.subTest(report=report), self.assertRaises(ValueError):
+                server.normalize_report(report)
+
     def test_later_report_refreshes_metadata_without_duplicate_or_new_timestamp(self) -> None:
         server = load_server()
         with tempfile.TemporaryDirectory() as tmp:

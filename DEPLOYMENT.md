@@ -24,6 +24,13 @@ where it actually runs and what is outstanding on the estate.
   `/etc/renderdeck.env` (`RENDERDECK_TOKEN=...`); never put the value directly
   in `renderdeck.service`. Rotating it means regenerating that env file and
   updating every machine's config; there is no push mechanism.
+- Service account: dedicated unprivileged `renderdeck`; persistent state is
+  service-owned at `/var/lib/renderdeck/` and provisioned with mode 0700 by
+  systemd `StateDirectory=`. The tracked hardened unit is
+  `install/renderdeck.service`.
+- Network policy is defense in depth: UFW exposes 8090 only through Tailscale
+  and Docker/Gatus, while the systemd unit independently allows only loopback,
+  `100.64.0.0/10`, and `172.17.0.0/16`.
 
 ## Deploying a change
 
