@@ -86,10 +86,10 @@ on a Mac is **not** where these are installed.
   retains that stale non-empty snapshot and reads per-frame movie logs until AE
   resumes scripting. Never infer the current job from `AfterFX.exe` alone. A
   render already underway before metadata capture is not safely backfillable.
-- **AE scheduled callbacks run in a detached JSVM.** A closure/global function
-  can write once at launch and then silently stop. The tracked startup script
-  schedules a standalone `renderdeck-ae-tick.jsx` by absolute path; deploy both
-  files into every AE version's `Scripts/Startup/` directory.
+- **AE scheduled callbacks need true global declarations.** Code hidden in an
+  IIFE can write once at launch and then silently stop when `scheduleTask`
+  evaluates its callback later. The tracked publisher uses uniquely prefixed
+  top-level declarations and self-schedules `renderdeckAeTick()`.
 - **macOS process detection uses executable name `Resolve`, not bundle name
   `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
   bundle name produces healthy empty heartbeats while silently skipping every
