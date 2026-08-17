@@ -183,6 +183,14 @@ case "$(uname -s)" in
     have_ae      && install_launchd ae      renderdeck-ae-sequence "--interval 30"
     have_resolve && install_launchd resolve renderdeck-resolve     ""
     if have_ae; then
+      CEP_DEST="$HOME/Library/Application Support/Adobe/CEP/extensions/com.renderdeck.monitor"
+      mkdir -p "$(dirname "$CEP_DEST")"
+      rm -rf "$CEP_DEST"
+      cp -R "$DEST/watchers/cep-renderdeck" "$CEP_DEST"
+      for csxs in 11 12 13 14 15 16; do
+        defaults write "com.adobe.CSXS.$csxs" PlayerDebugMode 1
+      done
+      echo "    AE CEP monitor: $CEP_DEST"
       for prefs in "$HOME"/Library/Preferences/Adobe/After\ Effects/[0-9]*; do
         [ -d "$prefs" ] || continue
         mkdir -p "$prefs/Scripts/Startup"

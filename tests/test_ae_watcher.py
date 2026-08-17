@@ -30,6 +30,18 @@ class AeWatcherTest(unittest.TestCase):
         self.assertNotIn("$.global.__renderdeckAeAutoTick", startup)
         self.assertNotIn("(function ()", startup)
 
+    def test_cep_panel_publishes_queued_snapshot(self) -> None:
+        root = Path(__file__).parents[1]
+        cep = root / "watchers" / "cep-renderdeck"
+        self.assertTrue((cep / "CSXS" / "manifest.xml").is_file())
+        self.assertIn("renderdeckAeCepTick()", (cep / "index.js").read_text())
+        host = (cep / "host.jsx").read_text()
+        self.assertIn("RQItemStatus.QUEUED", host)
+        self.assertIn("ERRORS_AND_PER_FRAME_INFO", host)
+        self.assertIn("ae-queue.json", host)
+        self.assertIn("cep-renderdeck", (root / "install" / "bootstrap.sh").read_text())
+        self.assertIn("cep-renderdeck", (root / "install" / "bootstrap.ps1").read_text())
+
     def _queue_file(self, root: str, jobs: list[dict], age: int = 0) -> str:
         path = Path(root) / "ae-queue.json"
         path.write_text(json.dumps({"ts": time.time(), "jobs": jobs}))

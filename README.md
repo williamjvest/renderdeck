@@ -188,10 +188,12 @@ start time. For an older terminal job recovered from Resolve's current queue,
 the time is when renderdeck imported it; Resolve does not expose the original
 start or finish timestamp for that completed queue entry.
 
-AE evaluates `scheduleTask` callbacks later in its shared global scripting
-environment. The publisher therefore defines a uniquely prefixed top-level
-callback and self-schedules that function; callback code must not live only in
-an IIFE closure or behind `$.global` property lookup.
+Current AE releases can silently kill `app.scheduleTask` after its first
+callback. Queue capture therefore comes from the bundled **renderdeck monitor**
+CEP panel: CEP's browser timer calls a tiny host-side snapshot every two seconds
+while AE is idle. Leave the panel docked/open; AE restores open CEP panels on
+the next launch. Once rendering starts and AE blocks host scripts, the external
+watcher retains the last queued snapshot and reads AE's per-frame log.
 
 History identifies the reporting program as **Resolve** or **AE**. This matters
 on machines running both applications and prevents same-named outputs from

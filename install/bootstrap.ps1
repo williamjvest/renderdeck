@@ -138,6 +138,16 @@ if ($haveResolve) { Register-Watcher "Resolve" "renderdeck-resolve"     "" }
 # launches. Install there so GUI queue reporting never depends on somebody
 # remembering to open and arm a ScriptUI panel.
 if ($haveAe) {
+  $cepDest = Join-Path $env:APPDATA 'Adobe\CEP\extensions\com.renderdeck.monitor'
+  Remove-Item $cepDest -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force (Split-Path $cepDest) | Out-Null
+  Copy-Item "$Dest\watchers\cep-renderdeck" $cepDest -Recurse -Force
+  foreach ($csxs in 11..16) {
+    New-Item "HKCU:\Software\Adobe\CSXS.$csxs" -Force | Out-Null
+    New-ItemProperty "HKCU:\Software\Adobe\CSXS.$csxs" -Name PlayerDebugMode -Value '1' -PropertyType String -Force | Out-Null
+  }
+  Write-Host "    AE CEP monitor: $cepDest"
+
   $aePrefs = Join-Path $env:APPDATA "Adobe\After Effects"
   Get-ChildItem $aePrefs -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match '^\d' } |

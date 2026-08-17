@@ -86,10 +86,11 @@ on a Mac is **not** where these are installed.
   retains that stale non-empty snapshot and reads per-frame movie logs until AE
   resumes scripting. Never infer the current job from `AfterFX.exe` alone. A
   render already underway before metadata capture is not safely backfillable.
-- **AE scheduled callbacks need true global declarations.** Code hidden in an
-  IIFE can write once at launch and then silently stop when `scheduleTask`
-  evaluates its callback later. The tracked publisher uses uniquely prefixed
-  top-level declarations and self-schedules `renderdeckAeTick()`.
+- **Do not rely on AE `scheduleTask` for queue polling.** Current AE releases
+  can silently stop it after the first callback. The bootstrap installs the
+  unsigned local `renderdeck monitor` CEP panel and enables per-user CEP debug
+  mode. Open/dock that panel once; CEP captures queued metadata every two
+  seconds, and AE restores an open panel on later launches.
 - **macOS process detection uses executable name `Resolve`, not bundle name
   `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
   bundle name produces healthy empty heartbeats while silently skipping every
