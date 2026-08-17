@@ -43,7 +43,7 @@ function renderdeckAeCollect() {
     var it = rq.item(i), total = null;
     try {
       if (it.status !== RQItemStatus.RENDERING && it.status !== RQItemStatus.DONE) {
-        it.logType = RQItemLogType.ERRORS_AND_PER_FRAME_INFO;
+        it.logType = LogType.ERRORS_AND_PER_FRAME_INFO;
       }
       total = Math.round(it.timeSpanDuration / it.comp.frameDuration);
     } catch (ignoreLogError) {}

@@ -38,7 +38,7 @@ function renderdeckAeCepTick() {
       if (state === null) { continue; }
       try {
         if (it.status === RQItemStatus.QUEUED) {
-          it.logType = RQItemLogType.ERRORS_AND_PER_FRAME_INFO;
+          it.logType = LogType.ERRORS_AND_PER_FRAME_INFO;
         }
         total = Math.round(it.timeSpanDuration / it.comp.frameDuration);
       } catch (ignoreLogError) {}
