@@ -179,6 +179,10 @@ start time. For an older terminal job recovered from Resolve's current queue,
 the time is when renderdeck imported it; Resolve does not expose the original
 start or finish timestamp for that completed queue entry.
 
+History identifies the reporting program as **Resolve** or **AE**. This matters
+on machines running both applications and prevents same-named outputs from
+looking like duplicate records from one queue.
+
 ## Deployment
 
 This repo is the software. For the Toldwell estate — which host runs what,

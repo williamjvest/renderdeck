@@ -19,6 +19,13 @@ def load_server():
 
 
 class ServerHistoryTest(unittest.TestCase):
+    def test_history_table_identifies_the_rendering_application(self) -> None:
+        server = load_server()
+        self.assertIn('>Program</th>', server.PAGE)
+        self.assertIn("a==='DaVinci Resolve'?'Resolve'", server.PAGE)
+        self.assertIn("a==='After Effects'?'AE'", server.PAGE)
+        self.assertIn('${esc(appLabel(r.app))}', server.PAGE)
+
     def test_report_validation_bounds_untrusted_fields(self) -> None:
         server = load_server()
         machine, app, jobs = server.normalize_report({

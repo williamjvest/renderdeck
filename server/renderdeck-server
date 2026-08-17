@@ -268,6 +268,7 @@ PAGE = """<!doctype html><html lang=en><head><meta charset=UTF-8>
             <thead class="sticky top-0 bg-zinc-950 text-zinc-400 shadow-md"><tr>
               <th class="p-3 font-medium whitespace-nowrap">Time</th>
               <th class="p-3 font-medium">Machine</th>
+              <th class="p-3 font-medium whitespace-nowrap">Program</th>
               <th class="p-3 font-medium">Filename</th>
               <th class="p-3 font-medium">Status</th>
             </tr></thead>
@@ -284,6 +285,7 @@ const BADGE_BASE = "w-fit self-start sm:self-auto shrink-0 whitespace-nowrap px-
 let D={machines:[],history:[],active:0};
 const esc=s=>String(s??'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 const base=s=>String(s||'').split(/[\\/]/).pop();
+const appLabel=a=>a==='DaVinci Resolve'?'Resolve':a==='After Effects'?'AE':a;
 const dur=s=>{s=Math.round(s||0);const h=s/3600|0,m=(s%3600)/60|0;
   return h?`${h}h ${m}m`:m?`${m}m ${s%60}s`:`${s}s`};
 const clock=t=>new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -353,9 +355,10 @@ function draw(){
   document.getElementById('hist').innerHTML = rows.length?rows.map(r=>
     `<tr class="hover:bg-zinc-950/50"><td class="p-3 text-zinc-500 whitespace-nowrap">${clock(r.ts)}</td>
      <td class="p-3 text-zinc-400">${esc(r.machine)}</td>
+     <td class="p-3 text-zinc-500 whitespace-nowrap">${esc(appLabel(r.app))}</td>
      <td class="p-3 truncate max-w-[16rem]">${esc(r.name)}</td>
      <td class="p-3 font-medium ${cls[r.state]||'text-zinc-400'}">${esc(r.state)} <span class="text-zinc-600 font-normal">${dur(r.elapsed_s)}</span></td></tr>`
-  ).join(''):'<tr><td colspan=4 class="p-6 text-center text-zinc-600">No history yet</td></tr>';
+  ).join(''):'<tr><td colspan=5 class="p-6 text-center text-zinc-600">No history yet</td></tr>';
 }
 async function tick(){try{D=await(await fetch('/api/state')).json()}catch(e){}draw()}
 tick();setInterval(tick,5000);
