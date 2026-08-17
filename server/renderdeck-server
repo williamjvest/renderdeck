@@ -89,13 +89,19 @@ def record(machine, app, jobs):
               (machine, app, json.dumps(jobs), now))
     for j in jobs:
         if j.get("state") in ("complete", "failed", "cancelled"):
-            # UNIQUE(machine, job_id, state) makes re-reporting the same
-            # terminal job a no-op instead of duplicating history rows.
+            # UNIQUE(machine, app, job_id, state) prevents duplicates. Refresh
+            # metadata on later reports so adapter improvements (for example,
+            # replacing Resolve's generic `Job 1` with the output filename)
+            # repair existing history without rewriting its original timestamp.
             c.execute("INSERT OR IGNORE INTO history"
                       "(machine,app,job_id,name,state,elapsed_s,output,error,ts)"
                       " VALUES(?,?,?,?,?,?,?,?,?)",
                       (machine, app, j.get("id"), j.get("name"), j.get("state"),
                        j.get("elapsed_s"), j.get("output"), j.get("error"), now))
+            c.execute("UPDATE history SET name=?,elapsed_s=?,output=?,error=?"
+                      " WHERE machine=? AND app=? AND job_id=? AND state=?",
+                      (j.get("name"), j.get("elapsed_s"), j.get("output"),
+                       j.get("error"), machine, app, j.get("id"), j.get("state")))
     c.commit()
     c.close()
 

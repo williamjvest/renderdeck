@@ -86,6 +86,12 @@ def gv(d, keys, default=None):
     return default
 
 
+def job_name(job):
+    """Prefer the deliverable filename over Resolve's generic `Job N` label."""
+    return gv(job, ("OutputFilename", "OutputFileName", "TimelineName",
+                    "RenderJobName"), "render")
+
+
 def resolve_running():
     """
     Is the Resolve APP actually open?
@@ -177,7 +183,7 @@ def poll(resolve, seen, stalls, dry_run=False, announce=True):
         pct_now = status.get("CompletionPercentage")
         wire.append({
             "id": jid,
-            "name": gv(job, ("RenderJobName", "OutputFilename"), "render"),
+            "name": job_name(job),
             "state": {"Complete": "complete", "Failed": "failed",
                       "Cancelled": "cancelled", "Rendering": "rendering"}.get(state, "rendering"),
             "percent": pct_now,
@@ -202,7 +208,7 @@ def poll(resolve, seen, stalls, dry_run=False, announce=True):
                 if announce:
                     mins = STALL_SECONDS // 60
                     push(f"Resolve STALLED - {pname}",
-                         f"{gv(job, ('RenderJobName', 'OutputFilename'), 'render')}\n"
+                         f"{job_name(job)}\n"
                          f"Stuck at {pct}% for over {mins} min - Resolve may be wedged",
                          "high", "warning", dry_run)
         else:
@@ -221,7 +227,7 @@ def poll(resolve, seen, stalls, dry_run=False, announce=True):
         if not announce:
             continue
 
-        name = gv(job, ("RenderJobName", "OutputFilename"), "render")
+        name = job_name(job)
         out = os.path.join(gv(job, ("TargetDir", "TargetDirectory"), ""),
                            gv(job, ("OutputFilename", "OutputFileName"), ""))
         took = human(status.get("TimeTakenToRenderInMs"))

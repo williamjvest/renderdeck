@@ -20,6 +20,23 @@ def load_watcher():
 
 
 class ResolveWatcherTest(unittest.TestCase):
+    def test_job_name_prefers_output_filename_over_generic_resolve_label(self) -> None:
+        watcher = load_watcher()
+        job = {
+            "RenderJobName": "Job 1",
+            "TimelineName": "Main Timeline",
+            "OutputFilename": "Client_Master_v7.mov",
+        }
+        self.assertEqual(watcher.job_name(job), "Client_Master_v7.mov")
+
+    def test_job_name_falls_back_to_timeline_then_render_label(self) -> None:
+        watcher = load_watcher()
+        self.assertEqual(
+            watcher.job_name({"RenderJobName": "Job 1", "TimelineName": "Main"}),
+            "Main",
+        )
+        self.assertEqual(watcher.job_name({"RenderJobName": "Named Job"}), "Named Job")
+
     def test_macos_uses_executable_name_for_process_probe(self) -> None:
         watcher = load_watcher()
         if sys.platform != "darwin":
