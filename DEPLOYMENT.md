@@ -63,6 +63,10 @@ on a Mac is **not** where these are installed.
 
 ## Gotchas specific to this estate
 
+- **History time means terminal-report receipt time.** For a live-monitored job
+  this is effectively its finish time, not start time. For a terminal job
+  recovered after watcher installation/restart, it is the import time because
+  Resolve does not expose that queue entry's original timestamps.
 - **macOS process detection uses executable name `Resolve`, not bundle name
   `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
   bundle name produces healthy empty heartbeats while silently skipping every

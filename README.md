@@ -173,6 +173,12 @@ present in the current project's Render Queue are reported to the server on the
 first poll (without re-sending completion notifications). Jobs removed from
 Resolve before the watcher sees them cannot be reconstructed retroactively.
 
+The time shown in history is the server's **terminal-report receipt time** —
+effectively the finish time for a job monitored live. It is not the render's
+start time. For an older terminal job recovered from Resolve's current queue,
+the time is when renderdeck imported it; Resolve does not expose the original
+start or finish timestamp for that completed queue entry.
+
 ## Deployment
 
 This repo is the software. For the Toldwell estate — which host runs what,
