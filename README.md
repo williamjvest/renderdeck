@@ -188,6 +188,11 @@ start time. For an older terminal job recovered from Resolve's current queue,
 the time is when renderdeck imported it; Resolve does not expose the original
 start or finish timestamp for that completed queue entry.
 
+AE 26.3 runs scheduled callbacks in a detached JavaScript VM. The startup file
+therefore schedules an absolute-path `$.evalFile(...)` of the standalone
+`renderdeck-ae-tick.jsx`; it does not schedule a closure or global function.
+Both files must be installed together in each version's `Scripts/Startup/`.
+
 History identifies the reporting program as **Resolve** or **AE**. This matters
 on machines running both applications and prevents same-named outputs from
 looking like duplicate records from one queue.

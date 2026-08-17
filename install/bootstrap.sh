@@ -187,6 +187,7 @@ case "$(uname -s)" in
         [ -d "$prefs" ] || continue
         mkdir -p "$prefs/Scripts/Startup"
         cp "$DEST/watchers/renderdeck-ae-startup.jsx" "$prefs/Scripts/Startup/"
+        cp "$DEST/watchers/renderdeck-ae-tick.jsx" "$prefs/Scripts/Startup/"
         echo "    AE auto-start: $prefs/Scripts/Startup"
         # Startup scripts execute even when AE's file/network scripting access
         # is disabled, but File.write leaves a zero-byte queue file. Enable the

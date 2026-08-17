@@ -22,6 +22,17 @@ def load_watcher():
 
 
 class AeWatcherTest(unittest.TestCase):
+    def test_startup_schedules_standalone_tick_file(self) -> None:
+        root = Path(__file__).parents[1]
+        startup = (root / "watchers" / "renderdeck-ae-startup.jsx").read_text()
+        self.assertIn("renderdeck-ae-tick.jsx", startup)
+        self.assertIn("app.scheduleTask(command, 2000, true)", startup)
+        self.assertIn("$.evalFile(new File", startup)
+        self.assertNotIn("__renderdeckAeAutoTick()", startup)
+        self.assertTrue((root / "watchers" / "renderdeck-ae-tick.jsx").is_file())
+        self.assertIn("renderdeck-ae-tick.jsx", (root / "install" / "bootstrap.sh").read_text())
+        self.assertIn("renderdeck-ae-tick.jsx", (root / "install" / "bootstrap.ps1").read_text())
+
     def _queue_file(self, root: str, jobs: list[dict], age: int = 0) -> str:
         path = Path(root) / "ae-queue.json"
         path.write_text(json.dumps({"ts": time.time(), "jobs": jobs}))

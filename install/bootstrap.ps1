@@ -145,6 +145,7 @@ if ($haveAe) {
       $startup = Join-Path $_.FullName "Scripts\Startup"
       New-Item -ItemType Directory -Force $startup | Out-Null
       Copy-Item "$Dest\watchers\renderdeck-ae-startup.jsx" $startup -Force
+      Copy-Item "$Dest\watchers\renderdeck-ae-tick.jsx" $startup -Force
       Write-Host "    AE auto-start: $startup"
 
       # The publisher needs AE's managed file/network scripting preference.
