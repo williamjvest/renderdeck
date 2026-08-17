@@ -99,7 +99,7 @@ Every watcher emits exactly this, so notification, history and UI are written on
  "percent": 42.5, "elapsed_s": 900, "output": "/path", "error": null}
 ```
 
-`state` ∈ `rendering | complete | failed | cancelled | stalled`.
+`state` ∈ `queued | rendering | complete | failed | cancelled | stalled`.
 `percent` may be `null` when an app cannot honestly report it.
 
 ## Quick start

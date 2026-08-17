@@ -15,7 +15,7 @@ inventing a number.
 
 from __future__ import annotations
 
-STATES = ("rendering", "complete", "failed", "cancelled", "stalled")
+STATES = ("queued", "rendering", "complete", "failed", "cancelled", "stalled")
 TERMINAL = ("complete", "failed", "cancelled")
 
 

@@ -66,7 +66,8 @@ def _panel_candidates():
 
 
 PANEL_FILES = _panel_candidates()
-PANEL_MAX_AGE = 30          # seconds; older than this and the panel is gone
+PANEL_MAX_AGE = 30          # normal scheduleTask heartbeat age
+PANEL_RENDER_MAX_AGE = 24 * 60 * 60
 
 SEQ_EXT = {".tif", ".tiff", ".png", ".exr", ".dpx", ".jpg", ".jpeg", ".tga"}
 NUM_RE = re.compile(r"(\d+)(?=\.[^.]+$)")
@@ -221,6 +222,23 @@ def movie_progress(output, total_frames):
     return None
 
 
+def ae_running():
+    """A stale queue snapshot is trustworthy only while AE itself is open."""
+    try:
+        if os.name == "nt":
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq AfterFX.exe"],
+                capture_output=True, text=True, timeout=15,
+                creationflags=flags).stdout
+            return "AfterFX.exe" in out
+        return subprocess.run(
+            ["pgrep", "-x", "After Effects"], capture_output=True,
+            timeout=15).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def panel_jobs():
     """
     Jobs published by the AE panel, or None when it isn't running.
@@ -237,21 +255,33 @@ def panel_jobs():
             continue
         if m > newest_mtime:
             newest, newest_mtime = cand, m
-    if newest is None or time.time() - newest_mtime > PANEL_MAX_AGE:
+    if newest is None:
         return None
     try:
         with open(newest) as f:
             data = json.load(f)
     except (OSError, ValueError):
         return None
+    age = time.time() - newest_mtime
+    # AE blocks scheduleTask callbacks while its Render Queue owns the main
+    # thread. Keep a pre-render snapshot containing queued jobs alive while AE
+    # is open; the Python process can then derive live movie progress from AE's
+    # per-frame log. An empty stale snapshot is genuinely no publisher.
+    if age > PANEL_MAX_AGE:
+        if (age > PANEL_RENDER_MAX_AGE or not data.get("jobs") or
+                not ae_running()):
+            return None
     out = []
     for j in data.get("jobs", []):
         pct = j.get("percent")
-        if pct is None and j.get("state") == "rendering":
+        state = j.get("state")
+        if pct is None and state in ("queued", "rendering"):
             pct = movie_progress(j.get("output"), j.get("total_frames"))
+        if state == "queued" and pct is not None:
+            state = "rendering"
         try:
             out.append(renderdeck.job(
-                id=j.get("id"), name=j.get("name"), state=j.get("state"),
+                id=j.get("id"), name=j.get("name"), state=state,
                 percent=pct, elapsed_s=j.get("elapsed_s"),
                 output=j.get("output"), error=j.get("error")))
         except ValueError:

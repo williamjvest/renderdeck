@@ -39,6 +39,7 @@
   }
 
   function mapState(st) {
+    if (st === RQItemStatus.QUEUED)       { return "queued"; }
     if (st === RQItemStatus.RENDERING)    { return "rendering"; }
     if (st === RQItemStatus.DONE)         { return "complete"; }
     if (st === RQItemStatus.ERR_STOPPED)  { return "failed"; }

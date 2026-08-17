@@ -56,6 +56,15 @@ class ServerHistoryTest(unittest.TestCase):
             with self.subTest(report=report), self.assertRaises(ValueError):
                 server.normalize_report(report)
 
+    def test_queued_is_a_valid_nonterminal_state(self) -> None:
+        server = load_server()
+        _, _, jobs = server.normalize_report({
+            "machine": "Rynn", "app": "After Effects",
+            "jobs": [{"id": "rq1", "name": "Master", "state": "queued"}],
+        })
+        self.assertEqual(jobs[0]["state"], "queued")
+        self.assertIn("'queued','rendering','stalled'", server.PAGE)
+
     def test_later_report_refreshes_metadata_without_duplicate_or_new_timestamp(self) -> None:
         server = load_server()
         with tempfile.TemporaryDirectory() as tmp:
