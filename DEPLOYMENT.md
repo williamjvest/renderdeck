@@ -81,6 +81,11 @@ on a Mac is **not** where these are installed.
   reliably grant this permission to itself. AE 26.3 otherwise executes the
   script but leaves zero-byte queue and error files, while the Python watcher
   keeps sending healthy empty heartbeats.
+- **AE blocks startup-script timers during a GUI render.** The publisher must
+  capture queued-job metadata before the render starts; the Python watcher then
+  retains that stale non-empty snapshot and reads per-frame movie logs until AE
+  resumes scripting. Never infer the current job from `AfterFX.exe` alone. A
+  render already underway before metadata capture is not safely backfillable.
 - **macOS process detection uses executable name `Resolve`, not bundle name
   `DaVinci Resolve`.** `pgrep -x` matches the executable basename. Using the
   bundle name produces healthy empty heartbeats while silently skipping every

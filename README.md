@@ -100,6 +100,15 @@ Every watcher emits exactly this, so notification, history and UI are written on
 ```
 
 `state` ∈ `queued | rendering | complete | failed | cancelled | stalled`.
+
+AE's GUI Render Queue blocks ExtendScript `scheduleTask` callbacks while a
+render owns the main thread. The startup publisher therefore writes **queued**
+items, output paths, and expected frame counts before rendering begins. The
+out-of-process Python watcher keeps that non-empty snapshot alive while AE is
+open and upgrades a movie job to **rendering** when AE's per-frame output log
+shows progress. Once AE unblocks, the startup publisher resumes and reports the
+terminal state. A render that began before the publisher captured its queued
+metadata cannot be reconstructed safely from process state alone.
 `percent` may be `null` when an app cannot honestly report it.
 
 ## Quick start
